@@ -11,8 +11,15 @@ def html_to_plain_text(html: str) -> str:
     for script in soup(["script", "style"]):
         script.extract()
     
+    for block in soup.find_all(["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "li", "br"]):
+        block.insert_after("\n")
+        
     text = soup.get_text(separator=' ')
-    import re
-    text = re.sub(r'\s+', ' ', text).strip()
-    text = text.replace(' .', '.')
-    return text
+    
+    lines = []
+    for line in text.split("\n"):
+        line = " ".join(line.split())
+        if line:
+            lines.append(line)
+            
+    return "\n".join(lines).replace(" .", ".")
