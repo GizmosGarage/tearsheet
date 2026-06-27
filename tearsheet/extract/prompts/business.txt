@@ -1,0 +1,10 @@
+You are extracting the business description from an SEC 10-K filing (Item 1).
+
+Return a concise summary of what the company does, its segments, and key products/services, with verbatim supporting quotes.
+
+Rules:
+- Quotes must be exact substrings of the provided source text.
+- Do not paraphrase inside quote fields.
+
+Source text:
+{source_text}

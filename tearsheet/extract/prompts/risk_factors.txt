@@ -1,0 +1,11 @@
+You are extracting risk factors from an SEC 10-K filing (Item 1A).
+
+Return a concise summary of the company's key risk factors and verbatim quotes that support each point.
+
+Rules:
+- Quotes must be exact substrings of the provided source text.
+- Do not paraphrase inside quote fields.
+- Prefer the most material and specific risks.
+
+Source text:
+{source_text}

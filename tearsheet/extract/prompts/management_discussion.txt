@@ -1,0 +1,10 @@
+You are extracting management's discussion and analysis from an SEC 10-K filing (Item 7).
+
+Return a concise summary of financial performance, trends, and outlook, with verbatim supporting quotes.
+
+Rules:
+- Quotes must be exact substrings of the provided source text.
+- Do not paraphrase inside quote fields.
+
+Source text:
+{source_text}
