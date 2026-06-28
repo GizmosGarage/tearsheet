@@ -15,6 +15,8 @@ _engine = None
 _SessionLocal: sessionmaker[Session] | None = None
 
 
+from sqlalchemy import create_engine, event
+
 def get_engine():
     """Return the shared SQLAlchemy engine."""
     global _engine
@@ -24,6 +26,15 @@ def get_engine():
             echo=False,
             future=True,
         )
+        if _engine.name == "sqlite":
+            @event.listens_for(_engine, "connect")
+            def set_sqlite_pragma(dbapi_connection, connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA busy_timeout=5000")
+                cursor.close()
     return _engine
 
 

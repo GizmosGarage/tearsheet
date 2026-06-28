@@ -51,3 +51,13 @@ def test_session_scope():
     with session_scope() as session:
         c = session.query(Company).filter_by(ticker="TEST2").first()
         assert c is None
+
+from sqlalchemy.exc import IntegrityError
+from tearsheet.store.models import Document
+
+def test_foreign_keys_enforced():
+    init_db()
+    with pytest.raises(IntegrityError):
+        with session_scope() as session:
+            doc = Document(filing_id=99999, section="1A", text="test")
+            session.add(doc)

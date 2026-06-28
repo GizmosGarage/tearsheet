@@ -109,3 +109,20 @@ def test_financial_fact(session: Session):
     assert fact.id is not None
     assert fact.company_id == company.id
     assert company.financial_facts[0].concept == "Revenues"
+
+def test_document_unique_constraint(session: Session):
+    c = Company(ticker="TESTD", cik="0002")
+    session.add(c)
+    session.flush()
+    f = Filing(company_id=c.id, form_type="10-K", accession_number="0002")
+    session.add(f)
+    session.flush()
+    
+    d1 = Document(filing_id=f.id, section="1A", text="a")
+    session.add(d1)
+    session.commit()
+    
+    d2 = Document(filing_id=f.id, section="1A", text="b")
+    session.add(d2)
+    with pytest.raises(IntegrityError):
+        session.commit()

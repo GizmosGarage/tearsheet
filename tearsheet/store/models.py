@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text, func, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -43,6 +43,7 @@ class Filing(Base):
 
 class Document(Base):
     __tablename__ = "documents"
+    __table_args__ = (UniqueConstraint("filing_id", "section", name="uix_document_filing_section"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     filing_id: Mapped[int] = mapped_column(ForeignKey("filings.id"), index=True)
@@ -57,6 +58,7 @@ class Document(Base):
 
 class FinancialFact(Base):
     __tablename__ = "financial_facts"
+    __table_args__ = (UniqueConstraint("company_id", "concept", "period_end", name="uix_financial_fact_concept"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
@@ -72,6 +74,7 @@ class FinancialFact(Base):
 
 class QualitativeFact(Base):
     __tablename__ = "qualitative_facts"
+    __table_args__ = (UniqueConstraint("company_id", "category", "summary", name="uix_qualitative_fact"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
@@ -85,6 +88,7 @@ class QualitativeFact(Base):
 
 class Citation(Base):
     __tablename__ = "citations"
+    __table_args__ = (UniqueConstraint("document_id", "start_offset", "end_offset", name="uix_citation_document_span"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     qualitative_fact_id: Mapped[int] = mapped_column(
