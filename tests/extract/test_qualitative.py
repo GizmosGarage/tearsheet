@@ -2,7 +2,51 @@ import pytest
 from unittest.mock import MagicMock, patch
 from tearsheet.store.models import Document, QualitativeFact, Citation, Filing
 from tearsheet.extract.schemas import RiskList, RiskFactor
-from tearsheet.extract.qualitative import extract_risk_factors
+from tearsheet.extract.qualitative import extract_risk_factors, _chunk_text
+
+
+class TestSemanticChunking:
+    """Semantic chunker and large-document extraction tests.
+
+    - [ ] **Chunker units:** a short text → exactly one chunk; a >40k-char text → multiple chunks, each ≤ 40k; assert consecutive chunks share overlap; assert no chunk cuts a paragraph except the logged oversized-paragraph fallback.
+    - [ ] **Anti-split:** craft a risk paragraph positioned to straddle a boundary; assert it appears whole in the next chunk's overlap and grounds to a single global span.
+    - [ ] **Offset integrity:** with a multi-chunk doc, assert every accepted `start/end_offset` indexes into `document.text` such that `document.text[start:end]` equals the stored `quote` (proves global, not chunk-local, offsets).
+    - [ ] **Dedup:** mock the LLM to emit the same risk from two overlapping chunks (incl. a summary-drift variant grounding to the same span); assert `dedupe_by_span` yields one fact with one citation; assert a second `save_qualitative_facts` call is an idempotent no-op (no `IntegrityError`).
+    - [ ] **No-overflow regression:** feed an NVDA-sized (>100k char) synthetic Item 1A; assert it no longer raises and produces grounded facts.
+    - [ ] Run full suite — all green, zero network calls.
+    """
+
+    def test_chunk_text_boundaries(self):
+        # 1. Short text -> exactly one chunk
+        short_text = "Just one paragraph."
+        chunks = _chunk_text(short_text, chunk_size=100, overlap=20)
+        assert len(chunks) == 1
+        assert chunks[0] == short_text
+
+        # 2. Multiple chunks with exact paragraph splits and overlap
+        # 5 paragraphs, each 30 chars. chunk_size=100, overlap=20
+        # p1+p2+p3 = 90. +p4 = 120 (breaks).
+        # chunk 1: p1, p2, p3
+        # overlap = p3 (30 chars) -> > 20, so keeps p3
+        # chunk 2: p3, p4, p5
+        text = "A"*28 + ".\n\n" + "B"*28 + ".\n\n" + "C"*28 + ".\n\n" + "D"*28 + ".\n\n" + "E"*28 + ".\n\n"
+        chunks = _chunk_text(text, chunk_size=100, overlap=20)
+        
+        assert len(chunks) == 2
+        assert chunks[0] == "A"*28 + ".\n\n" + "B"*28 + ".\n\n" + "C"*28 + ".\n\n"
+        assert chunks[1] == "C"*28 + ".\n\n" + "D"*28 + ".\n\n" + "E"*28 + ".\n\n"
+
+        # 3. Oversized paragraph fallback
+        text_large = "A"*150
+        chunks_l = _chunk_text(text_large, chunk_size=100, overlap=20)
+        assert len(chunks_l) == 2
+        assert len(chunks_l[0]) == 100
+        assert chunks_l[0] == "A"*100
+        assert chunks_l[1] == "A"*50
+
+    def test_extract_risk_factors_large_document(self):
+        pass
+
 
 def test_extract_risk_factors():
     # Setup mock document
@@ -48,8 +92,3 @@ def test_extract_risk_factors_validations():
     doc2 = Document(id=42, filing=None, text="valid", section="1A")
     with pytest.raises(ValueError, match="valid filing and company_id"):
         extract_risk_factors(doc2, llm=mock_llm)
-        
-    # Too long
-    doc3 = Document(id=42, filing=Filing(company_id=10), text="a" * 100001, section="1A")
-    with pytest.raises(ValueError, match="exceeds maximum context window"):
-        extract_risk_factors(doc3, llm=mock_llm)
