@@ -10,6 +10,8 @@ import httpx
 from tearsheet import config
 
 
+import threading
+
 class EdgarClient:
     """Thin wrapper around httpx with SEC-compliant headers and rate limiting."""
 
@@ -26,6 +28,7 @@ class EdgarClient:
         self._timeout = timeout or config.SEC_REQUEST_TIMEOUT_SECONDS
         self._max_retries = max_retries if max_retries is not None else config.SEC_MAX_RETRIES
         self._last_request_at: float = 0.0
+        self._lock = threading.Lock()
         self._client = httpx.Client(
             headers={"User-Agent": self._user_agent, "Accept-Encoding": "gzip, deflate"},
             timeout=self._timeout,
@@ -33,20 +36,27 @@ class EdgarClient:
         )
 
     def _throttle(self) -> None:
-        elapsed = time.monotonic() - self._last_request_at
-        if elapsed < self._min_interval:
-            time.sleep(self._min_interval - elapsed)
+        with self._lock:
+            elapsed = time.monotonic() - self._last_request_at
+            if elapsed < self._min_interval:
+                time.sleep(self._min_interval - elapsed)
+            self._last_request_at = time.monotonic()
 
     def get(self, url: str, **kwargs: Any) -> httpx.Response:
         """GET with rate limiting and retries."""
         for attempt in range(self._max_retries):
             self._throttle()
-            self._last_request_at = time.monotonic()
             response = self._client.request("GET", url, **kwargs)
             if response.status_code == 429:
                 if attempt < self._max_retries - 1:
-                    time.sleep(self._min_interval * (2 ** attempt))
+                    retry_after = response.headers.get("Retry-After")
+                    if retry_after and retry_after.isdigit():
+                        time.sleep(int(retry_after))
+                    else:
+                        time.sleep(self._min_interval * (2 ** attempt))
                     continue
+                else:
+                    raise RuntimeError(f"Max retries exceeded for url: {url}")
             response.raise_for_status()
             return response
         raise RuntimeError(f"Max retries exceeded for url: {url}")
