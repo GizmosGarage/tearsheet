@@ -45,7 +45,48 @@ class TestSemanticChunking:
         assert chunks_l[1] == "A"*50
 
     def test_extract_risk_factors_large_document(self):
-        pass
+        # Create a document > 100k characters (e.g. 101k)
+        prefix = "A" * 40000 + "\n\n"
+        risk_text = "We face significant large document risks."
+        suffix = "\n\n" + "B" * 65000
+        
+        full_text = prefix + risk_text + suffix
+        assert len(full_text) > 100000
+        
+        from tearsheet.store.models import Filing, Document
+        filing = Filing(company_id=10)
+        doc = Document(id=42, filing=filing, text=full_text, section="1A")
+        
+        # Setup mock LLM Client to return the SAME risk multiple times
+        # simulating it being found in consecutive overlapping chunks.
+        mock_llm = MagicMock()
+        mock_llm.complete_structured.return_value = RiskList(risks=[
+            RiskFactor(summary="Large Document Risk", exact_quote="large document risks.")
+        ])
+        
+        with patch("tearsheet.extract.qualitative._load_prompt", return_value="Test prompt"):
+            facts = extract_risk_factors(doc, llm=mock_llm)
+            
+        # Ensure it didn't crash
+        # The LLM mock will be called multiple times (for each chunk)
+        # Because we return the same quote, the grounding gate will find it at the exact same global offset.
+        # Dedupe should catch it and return only 1 fact.
+        assert len(facts) == 1
+        
+        fact = facts[0]
+        assert fact.summary == "Large Document Risk"
+        assert len(fact.citations) == 1
+        
+        cit = fact.citations[0]
+        assert cit.quote == "large document risks."
+        
+        # Verify the offset is globally correct
+        expected_start = full_text.find("large document risks.")
+        assert cit.start_offset == expected_start
+        assert full_text[cit.start_offset:cit.end_offset] == "large document risks."
+        
+        # Verify LLM was called multiple times due to chunking
+        assert mock_llm.complete_structured.call_count > 1
 
 
 def test_extract_risk_factors():
