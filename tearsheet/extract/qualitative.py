@@ -140,16 +140,29 @@ def extract_risk_factors(
     llm = llm or LLMClient()
     system_prompt = _load_prompt("risk_factors.txt")
     
-    parsed = llm.complete_structured(
-        system_prompt=system_prompt,
-        user_prompt=document.text,
-        response_model=RiskList,
-    )
+    chunks = _chunk_text(document.text, chunk_size=40000, overlap=4000)
+    all_risks = []
     
-    grounding_result = verify_quotes(document.text, parsed.risks, document_id=document.id)
+    for chunk in chunks:
+        parsed = llm.complete_structured(
+            system_prompt=system_prompt,
+            user_prompt=chunk,
+            response_model=RiskList,
+        )
+        all_risks.extend(parsed.risks)
     
-    facts = []
+    grounding_result = verify_quotes(document.text, all_risks, document_id=document.id)
+    
+    seen_spans = set()
+    unique_spans = []
     for span in grounding_result.accepted:
+        span_key = (span.start_offset, span.end_offset)
+        if span_key not in seen_spans:
+            seen_spans.add(span_key)
+            unique_spans.append(span)
+            
+    facts = []
+    for span in unique_spans:
         fact = QualitativeFact(
             company_id=document.filing.company_id,
             category="risk_factor",
