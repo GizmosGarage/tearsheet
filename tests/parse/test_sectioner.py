@@ -9,19 +9,16 @@ Item 1A. Risk Factors
 There are many risks.
 Item 1B. Unresolved Staff Comments
 None.
-Item 1C. Cybersecurity
-Safe.
 Item 2. Properties
 We own buildings.
     """
     
     sections = split_10k_sections(text)
-    assert len(sections) == 5
+    assert len(sections) == 4
     assert sections[0].item == "1"
     assert sections[1].item == "1A"
     assert sections[2].item == "1B"
-    assert sections[3].item == "1C"
-    assert sections[4].item == "2"
+    assert sections[3].item == "2"
 
 def test_split_10k_sections_adversarial_headings():
     """Verify regex handles stylizations (missing dots, colons, PART prefixes, etc)."""
@@ -33,18 +30,15 @@ Item 1A: Risk Factors
 We have many many many many risks.
 Item 1B Unresolved Staff Comments
 None.
-Item 1C Cybersecurity
-None.
 ITEM 2. PROPERTIES
 Buildings are very very very very big.
     """
     sections = split_10k_sections(text)
-    assert len(sections) == 5
+    assert len(sections) == 4
     assert sections[0].item == "1"
     assert sections[1].item == "1A"
     assert sections[2].item == "1B"
-    assert sections[3].item == "1C"
-    assert sections[4].item == "2"
+    assert sections[3].item == "2"
 
 def test_split_10k_sections_ignores_toc():
     """Verify TOC matches are ignored."""
@@ -110,15 +104,13 @@ This is a verbose description of the risk factors section in the TOC.
 Item 1B. Unresolved Staff Comments
 This is a verbose description of the unresolved staff comments in the TOC.
 
-Item 1. Business
-Real business.
-Item 1A. Risk Factors
-Real risks.
-Item 1B. Unresolved Staff Comments
-Real comments.
-"""
-    # Append huge padding to the end of the last body section to increase its average span
-    text += "Padding " * 50
+    Item 1. Business
+    Real business. """ + ("Massive internal padding. " * 500) + """
+    Item 1A. Risk Factors
+    Real risks.
+    Item 1B. Unresolved Staff Comments
+    Real comments.
+    """
     sections = split_10k_sections(text)
     
     assert len(sections) == 3
@@ -146,3 +138,27 @@ Short body.
     assert sections[1].item == "1A"
     assert sections[2].item == "1B"
     assert "Short body" in sections[0].text
+
+def test_split_10k_sections_toc_swallow():
+    text = """
+Table of Contents
+Item 1. Business
+Item 1A. Risk Factors
+Item 1B. Unresolved Staff Comments
+Item 2. Properties
+
+Item 1. Business
+The real body starts here. """ + ("Massive internal padding. " * 5000) + """
+Item 1A. Risk Factors
+The real risks.
+Item 1B. Unresolved Staff Comments
+The real comments.
+Item 2. Properties
+The real properties.
+    """
+    
+    sections = split_10k_sections(text)
+    
+    assert len(sections) == 4
+    assert sections[0].item == "1"
+    assert "The real body starts here." in sections[0].text

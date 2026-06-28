@@ -80,8 +80,8 @@ def split_10k_sections(plain_text: str) -> list[Section]:
         for i in range(len(seq) - 1):
             idx1 = ITEM_ORDER.get(seq[i][1], -1)
             idx2 = ITEM_ORDER.get(seq[i+1][1], -1)
-            # Check for jumps or out of order
-            if idx2 != idx1 + 1:
+            # Check for strictly increasing (allows skipping items)
+            if idx2 <= idx1:
                 is_valid = False
                 break
         if is_valid:
@@ -90,15 +90,11 @@ def split_10k_sections(plain_text: str) -> list[Section]:
     best_seq = []
     best_span = -1
     
-    # Select the one with the largest raw text span from validated monotonic sequences
+    # Select the one with the largest Internal Span
     for i, seq in enumerate(valid_seqs):
+        if not seq: continue
         start_char = seq[0][0].start()
-        # Find where this sequence ends
-        # It ends where the NEXT sequence in the ORIGINAL sequences list begins, or EOF.
-        # To be simple and robust, we can just say it ends at the last match's start + some text, 
-        # or just find the index of this seq in sequences.
-        orig_idx = sequences.index(seq)
-        end_char = sequences[orig_idx+1][0][0].start() if orig_idx + 1 < len(sequences) and sequences[orig_idx+1] else len(plain_text)
+        end_char = seq[-1][0].start()
         
         span = end_char - start_char
         if span > best_span:

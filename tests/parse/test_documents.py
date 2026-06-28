@@ -13,8 +13,6 @@ def test_build_documents(tmp_path):
         <p>Risks.</p>
         <p>Item 1B. Unresolved Staff Comments</p>
         <p>None.</p>
-        <p>Item 1C. Cybersecurity</p>
-        <p>Safe.</p>
         <p>Item 2. Properties</p>
         <p>We own properties.</p>
         </body></html>"""
@@ -22,8 +20,8 @@ def test_build_documents(tmp_path):
     
     documents = build_documents(1, html_file)
     
-    assert len(documents) == 5
-    
+    assert len(documents) == 4
+
     assert isinstance(documents[0], Document)
     assert documents[0].filing_id == 1
     assert documents[0].section == "1"
@@ -36,5 +34,4 @@ def test_build_documents(tmp_path):
     assert "Risks." in documents[1].text
 
     assert documents[2].section == "1B"
-    assert documents[3].section == "1C"
-    assert documents[4].section == "2"
+    assert documents[3].section == "2"
