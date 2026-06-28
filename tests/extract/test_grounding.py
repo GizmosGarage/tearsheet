@@ -15,10 +15,19 @@ def test_verify_quote_span_genuine():
 
 def test_verify_quote_span_hallucinated():
     text = "This is a genuine quote from the document."
-    quote = RiskFactor(summary="A", exact_quote="fake quote")
+    quote = RiskFactor(summary="A", exact_quote="fake quote from")
     span = verify_quote_span(text, quote, document_id=1)
     
     assert span is None
+
+def test_verify_quote_span_flexible():
+    text = "This is\n a   geNUiNE \n quote FROM the document."
+    quote = RiskFactor(summary="A", exact_quote="a genuine quote from")
+    span = verify_quote_span(text, quote, document_id=1)
+    
+    assert span is not None
+    assert span.start_offset == 9
+    assert span.end_offset == 33
 
 def test_verify_quotes_partition():
     text = "This document discusses major financial risks and some operational risks."

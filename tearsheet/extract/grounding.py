@@ -36,15 +36,23 @@ def verify_quote_span(
     if not quote.exact_quote:
         return None
         
-    start_offset = source_text.find(quote.exact_quote)
-    if start_offset == -1:
+    import re
+    # Escape quote but replace escaped spaces with \s+ to allow flexible whitespace
+    words = quote.exact_quote.split()
+    if not words:
+        return None
+        
+    pattern_str = r'\s+'.join(re.escape(w) for w in words)
+    match = re.search(pattern_str, source_text, re.IGNORECASE)
+    
+    if not match:
         return None
         
     return GroundedSpan(
         quote=quote.exact_quote,
         summary=quote.summary,
-        start_offset=start_offset,
-        end_offset=start_offset + len(quote.exact_quote),
+        start_offset=match.start(),
+        end_offset=match.end(),
         document_id=document_id
     )
 

@@ -35,3 +35,21 @@ def test_extract_risk_factors():
     assert citation.document_id == 42
     assert citation.start_offset == 20
     assert citation.end_offset == 36
+
+def test_extract_risk_factors_validations():
+    mock_llm = MagicMock()
+    
+    # Unpersisted document
+    doc1 = Document(id=None, filing=Filing(company_id=10), text="valid", section="1A")
+    with pytest.raises(ValueError, match="must be persisted"):
+        extract_risk_factors(doc1, llm=mock_llm)
+        
+    # Missing filing/company_id
+    doc2 = Document(id=42, filing=None, text="valid", section="1A")
+    with pytest.raises(ValueError, match="valid filing and company_id"):
+        extract_risk_factors(doc2, llm=mock_llm)
+        
+    # Too long
+    doc3 = Document(id=42, filing=Filing(company_id=10), text="a" * 100001, section="1A")
+    with pytest.raises(ValueError, match="exceeds maximum context window"):
+        extract_risk_factors(doc3, llm=mock_llm)

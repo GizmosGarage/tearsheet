@@ -34,6 +34,13 @@ def extract_risk_factors(
     llm: LLMClient | None = None,
 ) -> list[QualitativeFact]:
     """Extract risk factors from Item 1A."""
+    if document.id is None:
+        raise ValueError("Document must be persisted before extraction.")
+    if document.filing is None or document.filing.company_id is None:
+        raise ValueError("Document must have a valid filing and company_id.")
+    if len(document.text) > 100000:
+        raise ValueError("Document text exceeds maximum context window.")
+        
     llm = llm or LLMClient()
     system_prompt = _load_prompt("risk_factors.txt")
     
