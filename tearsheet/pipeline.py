@@ -6,10 +6,12 @@ import logging
 from tearsheet.edgar.tickers import resolve_ticker_to_cik
 from tearsheet.edgar.submissions import get_filing_history
 from tearsheet.edgar.filings import locate_filing, download_filing_documents
+from tearsheet.edgar.xbrl import fetch_companyfacts
 from tearsheet.parse.documents import build_documents
 from tearsheet.extract.qualitative import extract_risk_factors
+from tearsheet.extract.financials import extract_financial_facts
 from tearsheet.store.repository import Repository
-from tearsheet.store.models import Filing, QualitativeFact
+from tearsheet.store.models import Filing, QualitativeFact, FinancialFact
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +19,7 @@ class ExecutionPipeline:
     def __init__(self, repo: Repository | None = None):
         self.repo = repo or Repository()
         
-    def run_for_ticker(self, ticker: str) -> list[QualitativeFact]:
+    def run_for_ticker(self, ticker: str) -> dict:
         """Run the end-to-end extraction pipeline for a ticker."""
         logger.info(f"Resolving ticker {ticker}")
         cik = resolve_ticker_to_cik(ticker)
@@ -41,6 +43,22 @@ class ExecutionPipeline:
         )
         filing = self.repo.upsert_filing(filing_obj)
         
+        saved_fin_facts = []
+        errors = []
+        
+        # Financial Branch
+        try:
+            logger.info(f"Fetching XBRL companyfacts for CIK {cik}")
+            companyfacts = fetch_companyfacts(cik)
+            logger.info(f"Extracting financial facts for {ticker}")
+            fin_facts = extract_financial_facts(company.id, companyfacts)
+            logger.info(f"Saving {len(fin_facts)} financial facts to repository")
+            saved_fin_facts = self.repo.save_financial_facts(fin_facts)
+        except Exception as e:
+            msg = f"Financials extraction failed: {str(e)}"
+            logger.error(msg)
+            errors.append(msg)
+            
         logger.info(f"Downloading documents for {accession_number}")
         raw_html_path = download_filing_documents(cik, accession_number)
         
@@ -64,7 +82,19 @@ class ExecutionPipeline:
         facts = extract_risk_factors(doc_1a)
         
         logger.info(f"Saving {len(facts)} qualitative facts to repository")
-        saved_facts = self.repo.save_qualitative_facts(facts)
+        saved_qual_facts = self.repo.save_qualitative_facts(facts)
         
         logger.info(f"Pipeline complete for {ticker}")
-        return saved_facts
+        
+        return {
+            "ticker": ticker.upper(),
+            "cik": cik,
+            "company_id": company.id,
+            "accession_number": accession_number,
+            "financial_facts": saved_fin_facts,
+            "qualitative_facts": saved_qual_facts,
+            "financial_facts_count": len(saved_fin_facts),
+            "qualitative_facts_count": len(saved_qual_facts),
+            "status": "success" if not errors else "completed_with_errors",
+            "errors": errors,
+        }

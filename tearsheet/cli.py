@@ -27,7 +27,10 @@ def main():
         print(f"Starting Tearsheet for {args.ticker.upper()}...")
         try:
             pipeline = ExecutionPipeline()
-            facts = pipeline.run_for_ticker(args.ticker)
+            result = pipeline.run_for_ticker(args.ticker)
+            facts = result.get("qualitative_facts", [])
+            fin_facts = result.get("financial_facts", [])
+            errors = result.get("errors", [])
             
             print("\n" + "="*50)
             print(f"VERIFIED RISK FACTORS FOR {args.ticker.upper()}")
@@ -40,6 +43,13 @@ def main():
                     print(f"\n{i}. {fact.summary}")
                     if fact.citations:
                         print(f"   > \"{fact.citations[0].quote}\"")
+                        
+            print("\n" + "="*50)
+            print(f"FINANCIAL FACTS SUMMARY: {len(fin_facts)} rows extracted")
+            if errors:
+                print("ERRORS:")
+                for e in errors:
+                    print(f" - {e}")
             print("="*50 + "\n")
             
         except Exception as e:

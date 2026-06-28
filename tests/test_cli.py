@@ -16,7 +16,11 @@ def test_cli_run_success(mock_pipeline_cls, capsys):
     mock_citation.quote = "We might be affected by viruses."
     mock_fact.citations = [mock_citation]
     
-    mock_pipeline.run_for_ticker.return_value = [mock_fact]
+    mock_pipeline.run_for_ticker.return_value = {
+        "qualitative_facts": [mock_fact],
+        "financial_facts": [],
+        "errors": []
+    }
     mock_pipeline_cls.return_value = mock_pipeline
     
     with patch.object(sys, 'argv', ['tearsheet', 'run', 'MSFT']):
