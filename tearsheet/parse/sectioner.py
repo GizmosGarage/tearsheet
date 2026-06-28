@@ -28,8 +28,8 @@ def split_10k_sections(plain_text: str) -> list[Section]:
     
     ITEM_ORDER = {
         "1": 1, "1A": 2, "1B": 3, "1C": 4, "2": 5, "3": 6, "4": 7, "5": 8, 
-        "6": 9, "7": 10, "7A": 11, "8": 12, "9": 13, "9A": 14, "9B": 15, 
-        "10": 16, "11": 17, "12": 18, "13": 19, "14": 20, "15": 21
+        "6": 9, "7": 10, "7A": 11, "8": 12, "9": 13, "9A": 14, "9B": 15, "9C": 16,
+        "10": 17, "11": 18, "12": 19, "13": 20, "14": 21, "15": 22, "16": 23
     }
     
     valid_matches = []
@@ -43,8 +43,8 @@ def split_10k_sections(plain_text: str) -> list[Section]:
                 "1": ["BUSINESS"], "1A": ["RISK"], "1B": ["UNRESOLVED"], "1C": ["CYBERSECURITY"],
                 "2": ["PROPERTIES"], "3": ["LEGAL"], "4": ["MINE"], "5": ["MARKET"], "6": ["SELECTED"],
                 "7": ["MANAGEMENT"], "7A": ["QUANTITATIVE"], "8": ["FINANCIAL"], "9": ["CHANGES"],
-                "9A": ["CONTROLS"], "9B": ["OTHER"], "10": ["DIRECTORS"], "11": ["EXECUTIVE"],
-                "12": ["SECURITY"], "13": ["CERTAIN"], "14": ["PRINCIPAL"], "15": ["EXHIBITS"]
+                "9A": ["CONTROLS"], "9B": ["OTHER"], "9C": ["DISCLOSURE"], "10": ["DIRECTORS"], "11": ["EXECUTIVE"],
+                "12": ["SECURITY"], "13": ["CERTAIN"], "14": ["PRINCIPAL"], "15": ["EXHIBITS"], "16": ["FORM", "SUMMARY"]
             }
             allowed = item_prefixes.get(item, [])
             if not any(title.upper().startswith(p) for p in allowed):
@@ -73,13 +73,13 @@ def split_10k_sections(plain_text: str) -> list[Section]:
         sequences.append(current_seq)
         
     valid_seqs = []
-    for seq in sequences:
+    for i, seq in enumerate(sequences):
         if not seq:
             continue
         is_valid = True
-        for i in range(len(seq) - 1):
-            idx1 = ITEM_ORDER.get(seq[i][1], -1)
-            idx2 = ITEM_ORDER.get(seq[i+1][1], -1)
+        for j in range(len(seq) - 1):
+            idx1 = ITEM_ORDER.get(seq[j][1], -1)
+            idx2 = ITEM_ORDER.get(seq[j+1][1], -1)
             # Check for strictly increasing (allows skipping items)
             if idx2 <= idx1:
                 is_valid = False
