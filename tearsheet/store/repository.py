@@ -37,17 +37,20 @@ class Repository:
 
     def upsert_company(self, *, ticker: str, cik: str, name: str | None = None) -> Company:
         """Insert or update a company by ticker."""
+        from sqlalchemy.dialects.sqlite import insert
         with self._session_ctx() as session:
-            company = session.scalar(select(Company).where(Company.ticker == ticker))
-            if company:
-                company.cik = cik
-                if name is not None:
-                    company.name = name
-            else:
-                company = Company(ticker=ticker, cik=cik, name=name)
-                session.add(company)
-            session.flush()
-            return company
+            stmt = insert(Company).values(ticker=ticker, cik=cik, name=name)
+            set_dict = {"cik": stmt.excluded.cik}
+            if name is not None:
+                set_dict["name"] = stmt.excluded.name
+                
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["ticker"],
+                set_=set_dict
+            ).returning(Company.id)
+            
+            c_id = session.scalar(stmt)
+            return session.scalar(select(Company).where(Company.id == c_id))
 
     def get_company_by_ticker(self, ticker: str) -> Company | None:
         with self._session_ctx() as session:
@@ -56,41 +59,142 @@ class Repository:
     # --- Filing ---
 
     def upsert_filing(self, filing: Filing) -> Filing:
+        from sqlalchemy.dialects.sqlite import insert
+        from sqlalchemy.orm import selectinload
         with self._session_ctx() as session:
-            existing = session.scalar(select(Filing).where(Filing.accession_number == filing.accession_number))
-            if existing:
-                existing.company_id = filing.company_id
-                existing.form_type = filing.form_type
-                existing.filed_date = filing.filed_date
-                existing.raw_cache_path = filing.raw_cache_path
-                session.flush()
-                return existing
-            else:
-                session.add(filing)
-                session.flush()
-                return filing
+            stmt = insert(Filing).values(
+                company_id=filing.company_id,
+                form_type=filing.form_type,
+                accession_number=filing.accession_number,
+                filed_date=filing.filed_date,
+                raw_cache_path=filing.raw_cache_path
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["accession_number"],
+                set_=dict(
+                    form_type=stmt.excluded.form_type,
+                    filed_date=stmt.excluded.filed_date,
+                    raw_cache_path=stmt.excluded.raw_cache_path
+                )
+            ).returning(Filing.id)
+            f_id = session.scalar(stmt)
+            
+            return session.scalar(
+                select(Filing)
+                .where(Filing.id == f_id)
+                .options(selectinload(Filing.company))
+            )
 
     # --- Document ---
 
     def save_documents(self, documents: list[Document]) -> list[Document]:
+        if not documents:
+            return []
+            
+        from sqlalchemy.dialects.sqlite import insert
+        from sqlalchemy.orm import selectinload
+        
+        doc_ids = []
         with self._session_ctx() as session:
-            session.add_all(documents)
-            session.flush()
-            return documents
+            for doc in documents:
+                stmt = insert(Document).values(
+                    filing_id=doc.filing_id,
+                    section=doc.section,
+                    title=doc.title,
+                    text=doc.text
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["filing_id", "section"],
+                    set_=dict(title=stmt.excluded.title, text=stmt.excluded.text)
+                ).returning(Document.id)
+                doc_ids.append(session.scalar(stmt))
+                
+            return list(session.scalars(
+                select(Document)
+                .where(Document.id.in_(doc_ids))
+                .options(selectinload(Document.filing))
+            ).all())
 
     # --- Facts ---
 
     def save_financial_facts(self, facts: list[FinancialFact]) -> list[FinancialFact]:
+        if not facts:
+            return []
+            
+        from sqlalchemy.dialects.sqlite import insert
+        fact_ids = []
         with self._session_ctx() as session:
-            session.add_all(facts)
-            session.flush()
-            return facts
+            for f in facts:
+                stmt = insert(FinancialFact).values(
+                    company_id=f.company_id,
+                    concept=f.concept,
+                    label=f.label,
+                    unit=f.unit,
+                    period_end=f.period_end,
+                    value=f.value
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["company_id", "concept", "period_end"],
+                    set_=dict(
+                        label=stmt.excluded.label,
+                        unit=stmt.excluded.unit,
+                        value=stmt.excluded.value
+                    )
+                ).returning(FinancialFact.id)
+                fact_ids.append(session.scalar(stmt))
+                
+            return list(session.scalars(
+                select(FinancialFact).where(FinancialFact.id.in_(fact_ids))
+            ).all())
 
     def save_qualitative_facts(
         self,
         facts: list[QualitativeFact],
     ) -> list[QualitativeFact]:
+        if not facts:
+            return []
+            
+        from sqlalchemy.dialects.sqlite import insert
+        from sqlalchemy.orm import selectinload
+        
         with self._session_ctx() as session:
-            session.add_all(facts)
-            session.flush()
-            return facts
+            saved_facts = []
+            for f in facts:
+                stmt = insert(QualitativeFact).values(
+                    company_id=f.company_id,
+                    category=f.category,
+                    summary=f.summary
+                )
+                stmt = stmt.on_conflict_do_nothing(
+                    index_elements=["company_id", "category", "summary"]
+                ).returning(QualitativeFact.id)
+                
+                f_id = session.scalar(stmt)
+                if not f_id:
+                    f_id = session.scalar(
+                        select(QualitativeFact.id)
+                        .where(QualitativeFact.company_id == f.company_id)
+                        .where(QualitativeFact.category == f.category)
+                        .where(QualitativeFact.summary == f.summary)
+                    )
+                
+                if f_id:
+                    saved_facts.append(f_id)
+                    for c in f.citations:
+                        c_stmt = insert(Citation).values(
+                            qualitative_fact_id=f_id,
+                            document_id=c.document_id,
+                            quote=c.quote,
+                            start_offset=c.start_offset,
+                            end_offset=c.end_offset
+                        )
+                        c_stmt = c_stmt.on_conflict_do_nothing(
+                            index_elements=["document_id", "start_offset", "end_offset"]
+                        )
+                        session.execute(c_stmt)
+                        
+            return list(session.scalars(
+                select(QualitativeFact)
+                .where(QualitativeFact.id.in_(saved_facts))
+                .options(selectinload(QualitativeFact.citations))
+            ).all())

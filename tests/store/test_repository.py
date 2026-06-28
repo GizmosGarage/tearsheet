@@ -58,6 +58,18 @@ def test_save_documents():
     saved_docs = repo.save_documents(docs)
     assert len(saved_docs) == 2
     assert saved_docs[0].id is not None
+    
+def test_save_documents_eager_loads_filing():
+    repo = Repository()
+    c = repo.upsert_company(ticker="MSFTX", cik="0003")
+    f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="0003"))
+    
+    docs = [Document(filing_id=f.id, section="1A", text="text")]
+    saved_docs = repo.save_documents(docs)
+    
+    # outside session context
+    assert saved_docs[0].filing is not None
+    assert saved_docs[0].filing.accession_number == "0003"
 
 def test_save_financial_facts():
     repo = Repository()
