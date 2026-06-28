@@ -105,14 +105,15 @@ class Repository:
         - **Exclude** the ``1970-01-01`` sentinel (missing-date facts persisted by
           ``save_financial_facts`` when ``period_end`` is NULL).
         - **Exclude** rows where ``value`` is NULL.
-
-        Checklist (Part A1):
-        - [ ] Delegate to ``get_financial_facts`` or equivalent query
-        - [ ] Filter out ``period_end == date(1970, 1, 1)``
-        - [ ] Filter out ``value is None``
-        - [ ] Return ``list[tuple[date, float]]`` sorted ASC
         """
-        pass
+        facts = self.get_financial_facts(company_id=company_id, concept=concept)
+        sentinel_date = date(1970, 1, 1)
+        
+        series = []
+        for f in facts:
+            if f.period_end != sentinel_date and f.value is not None:
+                series.append((f.period_end, float(f.value)))
+        return series
 
     def get_latest_filing(self, company_id: int) -> Filing | None:
         """Most recent filing for dossier header provenance.

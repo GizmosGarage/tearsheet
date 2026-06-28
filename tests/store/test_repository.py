@@ -187,3 +187,23 @@ def test_get_latest_filing():
     assert latest is not None
     assert latest.accession_number == "002"
     assert latest.filed_date == date(2022, 1, 1)
+
+def test_get_financial_series():
+    repo = Repository()
+    c = repo.upsert_company(ticker="SERIES", cik="888")
+    
+    # Valid
+    f1 = FinancialFact(company_id=c.id, concept="Revenues", value=100.0, period_end=date(2021, 12, 31))
+    # Sentinel date (should be dropped)
+    f2 = FinancialFact(company_id=c.id, concept="Revenues", value=200.0, period_end=date(1970, 1, 1))
+    # None value (should be dropped)
+    f3 = FinancialFact(company_id=c.id, concept="Revenues", value=None, period_end=date(2022, 12, 31))
+    # Valid
+    f4 = FinancialFact(company_id=c.id, concept="Revenues", value=300.0, period_end=date(2023, 12, 31))
+    
+    repo.save_financial_facts([f1, f2, f3, f4])
+    
+    series = repo.get_financial_series(c.id, "Revenues")
+    assert len(series) == 2
+    assert series[0] == (date(2021, 12, 31), 100.0)
+    assert series[1] == (date(2023, 12, 31), 300.0)
