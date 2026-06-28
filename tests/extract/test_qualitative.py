@@ -151,3 +151,66 @@ def test_extract_risk_factors_validations():
     doc2 = Document(id=42, filing=None, text="valid", section="1A")
     with pytest.raises(ValueError, match="valid filing and company_id"):
         extract_risk_factors(doc2, llm=mock_llm)
+
+
+from tearsheet.extract.schemas import BusinessProfile, GroundedItem, MDAnalysis
+from tearsheet.extract.qualitative import extract_business, extract_management_discussion
+
+def test_extract_business():
+    text = "We sell cloud services. We compete with AWS. Our scale is a moat."
+    from tearsheet.store.models import Filing, Document
+    filing = Filing(company_id=10)
+    doc = Document(id=42, filing=filing, text=text, section="1")
+    
+    mock_llm = MagicMock()
+    mock_llm.complete_structured.return_value = BusinessProfile(
+        revenue_streams=[GroundedItem(summary="Cloud Sales", exact_quote="sell cloud services.")],
+        competitors=[GroundedItem(summary="AWS", exact_quote="compete with AWS.")],
+        moats=[
+            GroundedItem(summary="Scale", exact_quote="scale is a moat."),
+            GroundedItem(summary="Same As Cloud", exact_quote="sell cloud services.") # Duplicated quote!
+        ]
+    )
+    
+    with patch("tearsheet.extract.qualitative._load_prompt", return_value="Prompt"):
+        facts = extract_business(doc, llm=mock_llm)
+        
+    # We passed 4 items, but 2 share the same quote ("sell cloud services.").
+    # Global span dedup should reduce it to 3 facts.
+    assert len(facts) == 3
+    
+    categories = [f.category for f in facts]
+    assert "revenue_stream" in categories
+    assert "competitor" in categories
+    assert "competitive_moat" in categories
+    
+    for f in facts:
+        cit = f.citations[0]
+        assert text[cit.start_offset:cit.end_offset] == cit.quote
+
+
+def test_extract_mda():
+    text = "Cash is strong. EBITDA grew. We expect good things."
+    from tearsheet.store.models import Filing, Document
+    filing = Filing(company_id=10)
+    doc = Document(id=42, filing=filing, text=text, section="7")
+    
+    mock_llm = MagicMock()
+    mock_llm.complete_structured.return_value = MDAnalysis(
+        liquidity=[GroundedItem(summary="Cash", exact_quote="Cash is strong.")],
+        kpis=[GroundedItem(summary="EBITDA", exact_quote="EBITDA grew.")],
+        forward_sentiment=[GroundedItem(summary="Outlook", exact_quote="expect good things.")]
+    )
+    
+    with patch("tearsheet.extract.qualitative._load_prompt", return_value="Prompt"):
+        facts = extract_management_discussion(doc, llm=mock_llm)
+        
+    assert len(facts) == 3
+    categories = [f.category for f in facts]
+    assert "liquidity" in categories
+    assert "kpi" in categories
+    assert "forward_looking_sentiment" in categories
+    
+    for f in facts:
+        cit = f.citations[0]
+        assert text[cit.start_offset:cit.end_offset] == cit.quote

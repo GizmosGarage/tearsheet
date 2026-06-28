@@ -1,11 +1,11 @@
-"""LLM extraction: business / risk / competition / management discussion."""
+"""LLM extraction: business / risk / management discussion."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from tearsheet.extract.llm_client import LLMClient
-from tearsheet.extract.schemas import RiskList
+from tearsheet.extract.schemas import BusinessProfile, MDAnalysis, RiskList
 from tearsheet.store.models import Document, QualitativeFact
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
@@ -186,28 +186,101 @@ def extract_risk_factors(
     return facts
 
 
-def extract_competition(
+CATEGORY_RISK_FACTOR = "risk_factor"
+CATEGORY_REVENUE_STREAM = "revenue_stream"
+CATEGORY_COMPETITOR = "competitor"
+CATEGORY_COMPETITIVE_MOAT = "competitive_moat"
+CATEGORY_LIQUIDITY = "liquidity"
+CATEGORY_KPI = "kpi"
+CATEGORY_FORWARD_SENTIMENT = "forward_looking_sentiment"
+
+def _extract_grouped(
     document: Document,
-    *,
+    system_prompt: str,
+    response_model: type,
+    field_to_category: dict[str, str],
     llm: LLMClient | None = None,
-) -> RiskList:
-    """Extract competitive landscape from relevant sections."""
-    raise NotImplementedError
+) -> list[QualitativeFact]:
+    """Generalized grouped extractor (shared by business and MD&A paths)."""
+    if document.id is None:
+        raise ValueError("Document must be persisted before extraction.")
+    if document.filing is None or document.filing.company_id is None:
+        raise ValueError("Document must have a valid filing and company_id.")
+        
+    llm = llm or LLMClient()
+    chunks = _chunk_text(document.text, chunk_size=40000, overlap=4000)
+    
+    candidates = {cat: [] for cat in field_to_category.values()}
+    
+    for chunk in chunks:
+        parsed = llm.complete_structured(
+            system_prompt=system_prompt,
+            user_prompt=chunk,
+            response_model=response_model,
+        )
+        for field, category in field_to_category.items():
+            candidates[category].extend(getattr(parsed, field))
+            
+    accepted_by_span = {}
+    for category, items in candidates.items():
+        result = verify_quotes(document.text, items, document_id=document.id)
+        for span in result.accepted:
+            key = (span.start_offset, span.end_offset)
+            if key not in accepted_by_span:
+                accepted_by_span[key] = (category, span)
+                
+    facts = []
+    for (category, span) in accepted_by_span.values():
+        fact = QualitativeFact(
+            company_id=document.filing.company_id,
+            category=category,
+            summary=span.summary
+        )
+        citation = Citation(
+            document_id=span.document_id,
+            quote=span.quote,
+            start_offset=span.start_offset,
+            end_offset=span.end_offset
+        )
+        fact.citations = [citation]
+        facts.append(fact)
+        
+    return facts
 
 
 def extract_business(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> RiskList:
-    """Extract business description from Item 1."""
-    raise NotImplementedError
+) -> list[QualitativeFact]:
+    """Extract business profile from Item 1."""
+    return _extract_grouped(
+        document=document,
+        system_prompt=_load_prompt("business.txt"),
+        response_model=BusinessProfile,
+        field_to_category={
+            "revenue_streams": CATEGORY_REVENUE_STREAM,
+            "competitors": CATEGORY_COMPETITOR,
+            "moats": CATEGORY_COMPETITIVE_MOAT,
+        },
+        llm=llm
+    )
 
 
 def extract_management_discussion(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> RiskList:
+) -> list[QualitativeFact]:
     """Extract MD&A highlights from Item 7."""
-    raise NotImplementedError
+    return _extract_grouped(
+        document=document,
+        system_prompt=_load_prompt("management_discussion.txt"),
+        response_model=MDAnalysis,
+        field_to_category={
+            "liquidity": CATEGORY_LIQUIDITY,
+            "kpis": CATEGORY_KPI,
+            "forward_sentiment": CATEGORY_FORWARD_SENTIMENT,
+        },
+        llm=llm
+    )
