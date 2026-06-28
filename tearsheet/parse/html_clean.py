@@ -14,7 +14,7 @@ def html_to_plain_text(html: str) -> str:
     for block in soup.find_all(["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "li", "br"]):
         block.insert_after("\n")
         
-    text = soup.get_text(separator=' ')
+    text = soup.get_text()
     
     lines = []
     for line in text.split("\n"):
