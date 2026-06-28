@@ -28,6 +28,7 @@ def test_verify_quote_span_flexible():
     assert span is not None
     assert span.start_offset == 9
     assert span.end_offset == 33
+    assert span.quote == "a   geNUiNE \n quote FROM"
 
 def test_verify_quotes_partition():
     text = "This document discusses major financial risks and some operational risks."

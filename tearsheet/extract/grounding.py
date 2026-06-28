@@ -49,7 +49,7 @@ def verify_quote_span(
         return None
         
     return GroundedSpan(
-        quote=quote.exact_quote,
+        quote=source_text[match.start():match.end()],
         summary=quote.summary,
         start_offset=match.start(),
         end_offset=match.end(),

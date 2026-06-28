@@ -13,7 +13,7 @@ def test_risk_factor_schema_has_exact_quote():
     
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
-        RiskFactor(summary="A", exact_quote="Too short.")
+        RiskFactor(summary="A", exact_quote="No")
 
 def test_risk_list_schema_contains_factors():
     # Verify RiskList contains a list of RiskFactors
