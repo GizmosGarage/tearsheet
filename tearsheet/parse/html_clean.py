@@ -14,7 +14,7 @@ def html_to_plain_text(html: str) -> str:
     for block in soup.find_all(["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "li", "br"]):
         block.insert_after("\n")
         
-    text = soup.get_text()
+    text = soup.get_text(separator=' ')
     
     lines = []
     for line in text.split("\n"):
@@ -22,4 +22,10 @@ def html_to_plain_text(html: str) -> str:
         if line:
             lines.append(line)
             
-    return "\n".join(lines).replace(" .", ".")
+    text = "\n".join(lines).replace(" .", ".")
+    
+    import re
+    # Merge isolated alphanumerics (e.g. "I T E M" -> "ITEM", but "ITEM 1A" remains "ITEM 1A")
+    text = re.sub(r'(?<=\b\w)\s+(?=\w\b)', '', text)
+    
+    return text

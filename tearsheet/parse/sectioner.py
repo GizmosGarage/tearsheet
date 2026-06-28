@@ -21,15 +21,40 @@ def split_10k_sections(plain_text: str) -> list[Section]:
     sections = []
     
     pattern = re.compile(
-        r"^\s*(?:PART\s+[IVX]+\s+)?ITEM\s+([0-9]+\s*[A-Z]?)(?:[\.\:]|\s+)\s*(.*)$", 
+        r"^[ \t]*(?:PART[ \t]+[IVX]+[ \t]+)?ITEM[ \t]*([0-9]+[ \t]*[A-Z]?)(?:[\.\:]|[ \t]+)[ \t]*([^\n]*)$", 
         re.IGNORECASE | re.MULTILINE
     )
     matches = list(pattern.finditer(plain_text))
     
+    # Pre-filter TOC by checking distance to next match
+    real_matches = []
+    for i, match in enumerate(matches):
+        start_idx = match.end()
+        end_idx = matches[i+1].start() if i + 1 < len(matches) else len(plain_text)
+        text_between = plain_text[start_idx:end_idx].strip()
+        if len(text_between) < 15 and not any(w in text_between.lower() for w in ["none", "not applicable", "omitted"]):
+            continue
+        real_matches.append(match)
+        
+    ITEM_ORDER = {
+        "1": 1, "1A": 2, "1B": 3, "1C": 4, "2": 5, "3": 6, "4": 7, "5": 8, 
+        "6": 9, "7": 10, "7A": 11, "8": 12, "9": 13, "9A": 14, "9B": 15, 
+        "10": 16, "11": 17, "12": 18, "13": 19, "14": 20, "15": 21
+    }
+    
     valid_matches = []
-    for match in matches:
+    max_item_idx = -1
+    
+    for match in real_matches:
+        item = match.group(1).upper().replace(" ", "")
+        idx = ITEM_ORDER.get(item, -1)
+        if idx != -1:
+            if idx <= max_item_idx:
+                continue
+            max_item_idx = idx
+            
         title = match.group(2).strip()
-        if re.search(r'\.{4,}', title) or re.search(r'\s\d+$', title):
+        if re.search(r'\.{4,}', title):
             continue
         valid_matches.append((match, title))
         
@@ -37,6 +62,8 @@ def split_10k_sections(plain_text: str) -> list[Section]:
         item = match.group(1).upper().replace(" ", "")
         
         start_idx = match.end()
+        # Find where the next valid match starts, or EOF
+        # We must look at valid_matches[i+1]
         end_idx = valid_matches[i+1][0].start() if i + 1 < len(valid_matches) else len(plain_text)
         
         text = plain_text[start_idx:end_idx].strip()

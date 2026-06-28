@@ -22,13 +22,13 @@ def test_split_10k_sections_adversarial_headings():
     text = """
 PART I
 ITEM 1 BUSINESS
-We do business.
+We do business and it is very good.
 Part I Item 1A: Risk Factors
-We have risks.
+We have many many many many risks.
 Item 1B Unresolved Staff Comments
 None.
 ITEM 2. PROPERTIES
-Buildings.
+Buildings are very very very very big.
     """
     sections = split_10k_sections(text)
     assert len(sections) == 4
@@ -57,3 +57,35 @@ These are the real risks.
     assert "real business" in sections[0].text
     assert sections[1].item == "1A"
     assert "real risks" in sections[1].text
+
+def test_split_10k_sections_regex_tightness():
+    text = """
+Item 1A.
+This is the first risk sentence.
+ITEM 1 RISKS are bad.
+Item 1B. Unresolved Staff Comments
+None.
+    """
+    sections = split_10k_sections(text)
+    assert len(sections) == 2
+    assert sections[0].item == "1A"
+    assert "This is the first risk sentence." in sections[0].text
+    assert "ITEM 1 RISKS are bad." in sections[0].text
+    assert sections[1].item == "1B"
+
+def test_split_10k_sections_toc_heuristics():
+    text = """
+Table of Contents
+Item 1. Business
+Item 1A. Risk Factors
+Item 1B. Unresolved Staff Comments
+
+Item 1. Business
+The real business text which is long enough to not be TOC.
+Item 1A. Risk Factors
+The real risks which are long enough to not be TOC.
+    """
+    sections = split_10k_sections(text)
+    assert len(sections) == 2
+    assert sections[0].item == "1"
+    assert "real business text" in sections[0].text

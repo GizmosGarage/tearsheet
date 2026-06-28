@@ -37,5 +37,16 @@ def test_html_to_plain_text_span_fragments():
     """
     clean_text = html_to_plain_text(raw_html)
     
-    assert "ITEM 1A." in clean_text
+    assert "ITEM 1A." in clean_text, f"Got: {clean_text}"
     assert "Risk Factors" in clean_text
+
+def test_html_to_plain_text_span_word_merging():
+    raw_html = """
+    <html>
+    <body>
+        <div><span>ITEM</span><span>1A.</span><span>Risk Factors</span></div>
+    </body>
+    </html>
+    """
+    clean_text = html_to_plain_text(raw_html)
+    assert "ITEM 1A. Risk Factors" in clean_text
