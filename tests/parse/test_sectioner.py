@@ -89,3 +89,29 @@ The real risks which are long enough to not be TOC.
     assert len(sections) == 2
     assert sections[0].item == "1"
     assert "real business text" in sections[0].text
+
+def test_split_10k_sections_verbose_toc():
+    """Verify average span heuristic correctly isolates the body sequence against a verbose TOC."""
+    text = """
+Table of Contents
+Item 1. Business
+This is a verbose description of the business section that takes up some space in the TOC.
+Item 1A. Risk Factors
+This is a verbose description of the risk factors section in the TOC.
+Item 1B. Unresolved Staff Comments
+This is a verbose description of the unresolved staff comments in the TOC.
+
+Item 1. Business
+Real business.
+Item 1A. Risk Factors
+Real risks.
+Item 1B. Unresolved Staff Comments
+Real comments.
+"""
+    # Append huge padding to the end of the last body section to increase its average span
+    text += "Padding " * 50
+    sections = split_10k_sections(text)
+    
+    assert len(sections) == 3
+    assert sections[0].item == "1"
+    assert "Real business" in sections[0].text

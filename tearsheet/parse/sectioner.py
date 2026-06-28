@@ -73,15 +73,16 @@ def split_10k_sections(plain_text: str) -> list[Section]:
         sequences.append(current_seq)
         
     best_seq = []
-    best_span = -1
+    best_avg_span = -1
     
     for i, seq in enumerate(sequences):
         if not seq: continue
         start_char = seq[0][0].start()
         end_char = sequences[i+1][0][0].start() if i + 1 < len(sequences) and sequences[i+1] else len(plain_text)
         span = end_char - start_char
-        if span > best_span:
-            best_span = span
+        avg_span = span / max(1, len(seq))
+        if avg_span > best_avg_span:
+            best_avg_span = avg_span
             best_seq = seq
             
     for i, (match, item, title) in enumerate(best_seq):
