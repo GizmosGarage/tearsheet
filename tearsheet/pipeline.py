@@ -1,46 +1,70 @@
-"""One company end-to-end: ticker -> grounded fact store."""
+"""Master orchestration pipeline."""
 
 from __future__ import annotations
 
-from tearsheet.edgar import (
-    download_filing_documents,
-    fetch_companyfacts,
-    get_filing_history,
-    resolve_ticker_to_cik,
-)
-from tearsheet.extract import extract_financial_facts, extract_qualitative_facts
-from tearsheet.parse import build_documents
+import logging
+from tearsheet.edgar.tickers import resolve_ticker_to_cik
+from tearsheet.edgar.submissions import get_filing_history
+from tearsheet.edgar.filings import locate_filing, download_filing_documents
+from tearsheet.parse.documents import build_documents
+from tearsheet.extract.qualitative import extract_risk_factors
 from tearsheet.store.repository import Repository
+from tearsheet.store.models import Filing, QualitativeFact
 
-# Re-export stage entry points for pipeline wiring (not yet connected):
-__all__ = [
-    "build_documents",
-    "download_filing_documents",
-    "extract_financial_facts",
-    "extract_qualitative_facts",
-    "fetch_companyfacts",
-    "get_filing_history",
-    "resolve_ticker_to_cik",
-    "run_company_pipeline",
-]
+logger = logging.getLogger(__name__)
 
-
-def run_company_pipeline(ticker: str) -> None:
-    """Orchestrate gather -> parse -> extract -> store for a single company."""
-    repo = Repository()
-
-    cik = resolve_ticker_to_cik(ticker)
-    repo.upsert_company(ticker=ticker, cik=cik)
-
-    submissions = get_filing_history(cik)
-    # TODO: select target 10-K filing from submissions
-    _ = submissions
-
-    # TODO: wire filing selection, download, parse, extract, persist
-    # raw_path = download_filing_documents(cik, accession_number)
-    # documents = build_documents(filing_id, raw_path)
-    # companyfacts = fetch_companyfacts(cik)
-    # financial_facts = extract_financial_facts(company_id, companyfacts)
-    # qualitative_facts = extract_qualitative_facts(company_id, documents)
-
-    raise NotImplementedError("Pipeline wiring not yet implemented")
+class ExecutionPipeline:
+    def __init__(self, repo: Repository | None = None):
+        self.repo = repo or Repository()
+        
+    def run_for_ticker(self, ticker: str) -> list[QualitativeFact]:
+        """Run the end-to-end extraction pipeline for a ticker."""
+        logger.info(f"Resolving ticker {ticker}")
+        cik = resolve_ticker_to_cik(ticker)
+        
+        logger.info(f"Fetching filing history for CIK {cik}")
+        history = get_filing_history(cik)
+        company_name = history.get("name", ticker)
+        
+        # Upsert company
+        company = self.repo.upsert_company(ticker=ticker.upper(), cik=cik, name=company_name)
+        
+        logger.info(f"Locating latest 10-K for {ticker}")
+        filing_meta = locate_filing(cik, "10-K")
+        accession_number = filing_meta["accessionNumber"]
+        
+        # Upsert filing
+        filing_obj = Filing(
+            company_id=company.id,
+            form_type="10-K",
+            accession_number=accession_number
+        )
+        filing = self.repo.upsert_filing(filing_obj)
+        
+        logger.info(f"Downloading documents for {accession_number}")
+        raw_html_path = download_filing_documents(cik, accession_number)
+        
+        logger.info(f"Parsing sections from {raw_html_path}")
+        documents = build_documents(filing.id, raw_html_path)
+        
+        logger.info("Saving document sections to repository")
+        saved_docs = self.repo.save_documents(documents)
+        
+        # Find 1A
+        doc_1a = None
+        for d in saved_docs:
+            if d.section == "1A":
+                doc_1a = d
+                break
+                
+        if not doc_1a:
+            raise ValueError(f"Could not find Item 1A in the parsed documents for {ticker}")
+            
+        logger.info(f"Extracting risk factors from Item 1A (ID: {doc_1a.id})")
+        facts = extract_risk_factors(doc_1a)
+        
+        logger.info(f"Saving {len(facts)} qualitative facts to repository")
+        saved_facts = self.repo.save_qualitative_facts(facts)
+        
+        logger.info(f"Pipeline complete for {ticker}")
+        return saved_facts
