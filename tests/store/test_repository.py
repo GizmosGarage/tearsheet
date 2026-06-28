@@ -149,3 +149,41 @@ def test_get_qualitative_facts():
     filtered = repo.get_qualitative_facts(company_id=c.id, category="risk_factor")
     assert len(filtered) == 1
     assert filtered[0].summary == "Risk 1"
+
+def test_get_financial_facts():
+    repo = Repository()
+    c = repo.upsert_company(ticker="FINFACTS", cik="888")
+    
+    # Intentionally insert out of chronological order
+    fact2 = FinancialFact(company_id=c.id, concept="Revenues", value=200.0, period_end=date(2022, 12, 31))
+    fact1 = FinancialFact(company_id=c.id, concept="Revenues", value=100.0, period_end=date(2021, 12, 31))
+    fact3 = FinancialFact(company_id=c.id, concept="Assets", value=500.0, period_end=date(2022, 12, 31))
+    
+    repo.save_financial_facts([fact2, fact1, fact3])
+    
+    # Test optional concept filter and chronological sorting
+    revs = repo.get_financial_facts(company_id=c.id, concept="Revenues")
+    assert len(revs) == 2
+    assert revs[0].period_end == date(2021, 12, 31)
+    assert revs[1].period_end == date(2022, 12, 31)
+    
+    # Test all facts
+    all_facts = repo.get_financial_facts(company_id=c.id)
+    assert len(all_facts) == 3
+
+def test_get_latest_filing():
+    repo = Repository()
+    c = repo.upsert_company(ticker="LATEST", cik="888")
+    
+    f1 = Filing(company_id=c.id, form_type="10-K", accession_number="001", filed_date=date(2020, 1, 1))
+    f2 = Filing(company_id=c.id, form_type="10-K", accession_number="002", filed_date=date(2022, 1, 1))
+    f3 = Filing(company_id=c.id, form_type="10-K", accession_number="003", filed_date=date(2021, 1, 1))
+    
+    repo.upsert_filing(f1)
+    repo.upsert_filing(f2)
+    repo.upsert_filing(f3)
+    
+    latest = repo.get_latest_filing(c.id)
+    assert latest is not None
+    assert latest.accession_number == "002"
+    assert latest.filed_date == date(2022, 1, 1)

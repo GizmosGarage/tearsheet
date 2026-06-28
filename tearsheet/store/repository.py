@@ -86,12 +86,13 @@ class Repository:
         """Raw financial facts, optionally filtered to one concept.
 
         Results are ordered by ``period_end`` ascending.
-
-        Checklist (Part A1):
-        - [ ] Optional ``concept`` filter on ``FinancialFact.concept``
-        - [ ] ``order_by(FinancialFact.period_end.asc())``
         """
-        pass
+        with self._session_ctx() as session:
+            stmt = select(FinancialFact).where(FinancialFact.company_id == company_id)
+            if concept is not None:
+                stmt = stmt.where(FinancialFact.concept == concept)
+            stmt = stmt.order_by(FinancialFact.period_end.asc())
+            return list(session.scalars(stmt).all())
 
     def get_financial_series(
         self, company_id: int, concept: str
@@ -117,13 +118,14 @@ class Repository:
         """Most recent filing for dossier header provenance.
 
         Ordered by ``filed_date`` descending, then ``id`` descending as tiebreaker.
-
-        Checklist (Part A1):
-        - [ ] Filter ``Filing.company_id == company_id``
-        - [ ] ``order_by(Filing.filed_date.desc(), Filing.id.desc())``
-        - [ ] Return first row or ``None``
         """
-        pass
+        with self._session_ctx() as session:
+            stmt = (
+                select(Filing)
+                .where(Filing.company_id == company_id)
+                .order_by(Filing.filed_date.desc(), Filing.id.desc())
+            )
+            return session.scalars(stmt).first()
 
     # --- Filing ---
 
