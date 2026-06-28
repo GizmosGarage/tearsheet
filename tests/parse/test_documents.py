@@ -7,16 +7,22 @@ def test_build_documents(tmp_path):
     html_file = tmp_path / "filing.html"
     # Create HTML with a format that our html_to_plain_text and split_10k_sections will handle correctly
     html = """<html><body>
-    <p>Item 1. Business</p>
-    <p>We do business.</p>
-    <p>Item 2. Properties</p>
-    <p>We own properties.</p>
-    </body></html>"""
+        <p>Item 1. Business</p>
+        <p>We do business.</p>
+        <p>Item 1A. Risk Factors</p>
+        <p>Risks.</p>
+        <p>Item 1B. Unresolved Staff Comments</p>
+        <p>None.</p>
+        <p>Item 1C. Cybersecurity</p>
+        <p>Safe.</p>
+        <p>Item 2. Properties</p>
+        <p>We own properties.</p>
+        </body></html>"""
     html_file.write_text(html, encoding="utf-8")
     
     documents = build_documents(1, html_file)
     
-    assert len(documents) == 2
+    assert len(documents) == 5
     
     assert isinstance(documents[0], Document)
     assert documents[0].filing_id == 1
@@ -25,6 +31,10 @@ def test_build_documents(tmp_path):
     assert "We do business." in documents[0].text
     
     assert documents[1].filing_id == 1
-    assert documents[1].section == "2"
-    assert "Properties" in documents[1].title
-    assert "We own properties." in documents[1].text
+    assert documents[1].section == "1A"
+    assert "Risk Factors" in documents[1].title
+    assert "Risks." in documents[1].text
+
+    assert documents[2].section == "1B"
+    assert documents[3].section == "1C"
+    assert documents[4].section == "2"

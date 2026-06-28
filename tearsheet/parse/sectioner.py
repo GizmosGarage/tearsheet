@@ -72,17 +72,37 @@ def split_10k_sections(plain_text: str) -> list[Section]:
     if current_seq:
         sequences.append(current_seq)
         
+    valid_seqs = []
+    for seq in sequences:
+        if not seq:
+            continue
+        is_valid = True
+        for i in range(len(seq) - 1):
+            idx1 = ITEM_ORDER.get(seq[i][1], -1)
+            idx2 = ITEM_ORDER.get(seq[i+1][1], -1)
+            # Check for jumps or out of order
+            if idx2 != idx1 + 1:
+                is_valid = False
+                break
+        if is_valid:
+            valid_seqs.append(seq)
+            
     best_seq = []
-    best_avg_span = -1
+    best_span = -1
     
-    for i, seq in enumerate(sequences):
-        if not seq: continue
+    # Select the one with the largest raw text span from validated monotonic sequences
+    for i, seq in enumerate(valid_seqs):
         start_char = seq[0][0].start()
-        end_char = sequences[i+1][0][0].start() if i + 1 < len(sequences) and sequences[i+1] else len(plain_text)
+        # Find where this sequence ends
+        # It ends where the NEXT sequence in the ORIGINAL sequences list begins, or EOF.
+        # To be simple and robust, we can just say it ends at the last match's start + some text, 
+        # or just find the index of this seq in sequences.
+        orig_idx = sequences.index(seq)
+        end_char = sequences[orig_idx+1][0][0].start() if orig_idx + 1 < len(sequences) and sequences[orig_idx+1] else len(plain_text)
+        
         span = end_char - start_char
-        avg_span = span / max(1, len(seq))
-        if avg_span > best_avg_span:
-            best_avg_span = avg_span
+        if span > best_span:
+            best_span = span
             best_seq = seq
             
     for i, (match, item, title) in enumerate(best_seq):

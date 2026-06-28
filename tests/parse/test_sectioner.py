@@ -7,15 +7,21 @@ Item 1. Business
 We are a company that does things.
 Item 1A. Risk Factors
 There are many risks.
+Item 1B. Unresolved Staff Comments
+None.
+Item 1C. Cybersecurity
+Safe.
 Item 2. Properties
 We own buildings.
     """
     
     sections = split_10k_sections(text)
-    assert len(sections) == 3
+    assert len(sections) == 5
     assert sections[0].item == "1"
     assert sections[1].item == "1A"
-    assert sections[2].item == "2"
+    assert sections[2].item == "1B"
+    assert sections[3].item == "1C"
+    assert sections[4].item == "2"
 
 def test_split_10k_sections_adversarial_headings():
     """Verify regex handles stylizations (missing dots, colons, PART prefixes, etc)."""
@@ -23,19 +29,22 @@ def test_split_10k_sections_adversarial_headings():
 PART I
 ITEM 1 BUSINESS
 We do business and it is very good.
-Part I Item 1A: Risk Factors
+Item 1A: Risk Factors
 We have many many many many risks.
 Item 1B Unresolved Staff Comments
+None.
+Item 1C Cybersecurity
 None.
 ITEM 2. PROPERTIES
 Buildings are very very very very big.
     """
     sections = split_10k_sections(text)
-    assert len(sections) == 4
+    assert len(sections) == 5
     assert sections[0].item == "1"
     assert sections[1].item == "1A"
     assert sections[2].item == "1B"
-    assert sections[3].item == "2"
+    assert sections[3].item == "1C"
+    assert sections[4].item == "2"
 
 def test_split_10k_sections_ignores_toc():
     """Verify TOC matches are ignored."""
@@ -115,3 +124,25 @@ Real comments.
     assert len(sections) == 3
     assert sections[0].item == "1"
     assert "Real business" in sections[0].text
+
+def test_split_10k_sections_monotonic_jump():
+    text = """
+Table of Contents
+Item 1. Business
+This is a huge verbose description.
+Item 2. Properties
+Another massive description jumping over 1A and 1B.
+
+Item 1. Business
+Short body.
+Item 1A. Risk Factors
+Short body.
+Item 1B. Unresolved Staff Comments
+Short body.
+    """
+    sections = split_10k_sections(text)
+    assert len(sections) == 3
+    assert sections[0].item == "1"
+    assert sections[1].item == "1A"
+    assert sections[2].item == "1B"
+    assert "Short body" in sections[0].text
