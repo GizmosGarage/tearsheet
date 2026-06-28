@@ -22,8 +22,14 @@ def test_llm_client_complete_structured():
         mock_parse = MagicMock()
         mock_sdk_client.beta.chat.completions.parse = mock_parse
         
+        mock_message = MagicMock()
+        mock_message.parsed = DummyResponse(dummy_text="Parsed result")
+        
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        
         mock_parsed_response = MagicMock()
-        mock_parsed_response.parsed = DummyResponse(dummy_text="Parsed result")
+        mock_parsed_response.choices = [mock_choice]
         mock_parse.return_value = mock_parsed_response
         
         # Call the method
@@ -47,3 +53,30 @@ def test_llm_client_complete_structured():
             response_format=DummyResponse,
             temperature=0.0
         )
+
+def test_llm_client_refusal():
+    client = LLMClient(api_key="test-key")
+    
+    with patch("tearsheet.extract.llm_client.OpenAI") as mock_openai_cls:
+        mock_sdk_client = MagicMock()
+        mock_openai_cls.return_value = mock_sdk_client
+        client._client = mock_sdk_client
+        
+        mock_parse = MagicMock()
+        mock_sdk_client.beta.chat.completions.parse = mock_parse
+        
+        mock_message = MagicMock()
+        mock_message.parsed = None
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        
+        mock_parsed_response = MagicMock()
+        mock_parsed_response.choices = [mock_choice]
+        mock_parse.return_value = mock_parsed_response
+        
+        with pytest.raises(RuntimeError, match="LLM refused or failed"):
+            client.complete_structured(
+                system_prompt="sys",
+                user_prompt="user",
+                response_model=DummyResponse
+            )

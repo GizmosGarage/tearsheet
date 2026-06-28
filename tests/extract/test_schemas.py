@@ -7,15 +7,19 @@ def test_risk_factor_schema_has_exact_quote():
     assert "exact_quote" in RiskFactor.model_fields
     
     # Test instantiation
-    rf = RiskFactor(summary="High risk of failure.", exact_quote="We might fail.")
+    rf = RiskFactor(summary="High risk of failure.", exact_quote="We might fail because of things.")
     assert rf.summary == "High risk of failure."
-    assert rf.exact_quote == "We might fail."
+    assert rf.exact_quote == "We might fail because of things."
+    
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        RiskFactor(summary="A", exact_quote="Too short.")
 
 def test_risk_list_schema_contains_factors():
     # Verify RiskList contains a list of RiskFactors
     assert "risks" in RiskList.model_fields
     
-    rf = RiskFactor(summary="A", exact_quote="B")
+    rf = RiskFactor(summary="A", exact_quote="This is a long enough quote.")
     rl = RiskList(risks=[rf])
     assert len(rl.risks) == 1
-    assert rl.risks[0].exact_quote == "B"
+    assert rl.risks[0].exact_quote == "This is a long enough quote."

@@ -45,4 +45,7 @@ class LLMClient:
             response_format=response_model,
             temperature=0.0
         )
-        return completion.parsed
+        message = completion.choices[0].message
+        if message.parsed is None:
+            raise RuntimeError("LLM refused or failed to parse structured output.")
+        return message.parsed
