@@ -6,6 +6,3 @@ Rules:
 - Quotes must be exact substrings of the provided source text.
 - Do not paraphrase inside quote fields.
 - Prefer the most material and specific risks.
-
-Source text:
-{source_text}

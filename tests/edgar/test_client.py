@@ -96,7 +96,9 @@ def test_edgar_client_retry_after(retry_after, expected_sleep):
                 future_date = datetime.now(timezone.utc) + timedelta(seconds=10.5)
                 with patch("email.utils.parsedate_to_datetime", return_value=future_date):
                     response = client.get("https://www.sec.gov/files/company_tickers.json")
-                    mock_sleep.assert_any_call(10.5)
+                    # Time may have elapsed slightly, so use approx
+                    sleep_arg = mock_sleep.call_args_list[-1][0][0]
+                    assert sleep_arg == pytest.approx(10.5, abs=0.5)
             else:
                 response = client.get("https://www.sec.gov/files/company_tickers.json")
                 mock_sleep.assert_any_call(expected_sleep)

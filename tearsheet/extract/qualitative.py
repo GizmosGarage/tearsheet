@@ -275,7 +275,7 @@ def extract_management_discussion(
     """Extract MD&A highlights from Item 7."""
     return _extract_grouped(
         document=document,
-        system_prompt=_load_prompt("management_discussion.txt"),
+        system_prompt=_load_prompt("mda.txt"),
         response_model=MDAnalysis,
         field_to_category={
             "liquidity": CATEGORY_LIQUIDITY,

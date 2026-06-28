@@ -1,10 +1,19 @@
-You are extracting the business description from an SEC 10-K filing (Item 1).
+You are a financial analyst extracting the BUSINESS PROFILE from Item 1 of an SEC 10-K filing.
 
-Return a concise summary of what the company does, its segments, and key products/services, with verbatim supporting quotes.
+Extract three groups, each as a list of grounded items:
+1. revenue_streams — the core products, services, and segments the company earns money from.
+   Capture HOW the company makes money, not generic mission statements.
+2. competitors — specific competitors named or described, and the nature of competitive pressure.
+3. moats — durable competitive advantages: scale, proprietary technology/IP, switching costs,
+   brand, regulatory barriers, network effects. Only include advantages the text actually asserts.
 
-Rules:
-- Quotes must be exact substrings of the provided source text.
-- Do not paraphrase inside quote fields.
+Be selective and material. One item per distinct idea.
 
-Source text:
-{source_text}
+GROUNDING RULES (mandatory):
+- For every item, `exact_quote` MUST be copied verbatim, character-for-character, from the
+  source text provided in the user message — including original punctuation and capitalization.
+- Never paraphrase, summarize, translate, or alter text inside `exact_quote`. Summaries belong
+  only in the `summary` field.
+- If you cannot find a verbatim quote for a claim, do not emit that item.
+- Prefer a distinct quote for each item; do not reuse the same sentence for multiple items.
+- If a category has nothing in this text, return an empty list for it. Do not invent content.
