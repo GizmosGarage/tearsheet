@@ -32,7 +32,19 @@ def verify_quote_span(
     document_id: int,
 ) -> GroundedSpan | None:
     """Verify a single quote resolves to an exact span in source_text."""
-    raise NotImplementedError
+    if not quote.exact_quote:
+        return None
+        
+    start_offset = source_text.find(quote.exact_quote)
+    if start_offset == -1:
+        return None
+        
+    return GroundedSpan(
+        quote=quote.exact_quote,
+        start_offset=start_offset,
+        end_offset=start_offset + len(quote.exact_quote),
+        document_id=document_id
+    )
 
 
 def verify_quotes(
@@ -42,4 +54,14 @@ def verify_quotes(
     document_id: int,
 ) -> GroundingResult:
     """Verify all quotes; partition into accepted and rejected."""
-    raise NotImplementedError
+    accepted = []
+    rejected = []
+    
+    for q in quotes:
+        span = verify_quote_span(source_text, q, document_id=document_id)
+        if span is not None:
+            accepted.append(span)
+        else:
+            rejected.append(q)
+            
+    return GroundingResult(accepted=accepted, rejected=rejected)
