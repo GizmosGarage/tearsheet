@@ -21,21 +21,11 @@ def split_10k_sections(plain_text: str) -> list[Section]:
     sections = []
     
     pattern = re.compile(
-        r"^[ \t]*(?:PART[ \t]+[IVX]+[ \t]+)?ITEM[ \t]*([0-9]+[ \t]*[A-Z]?)(?:[\.\:]|[ \t]+)[ \t]*([^\n]*)$", 
+        r"^[ \t]*(?:PART[ \t]+[IVX]+[ \t]+)?ITEM[ \t]*([0-9]+[ \t]*[A-Z]?)([\.\:\-\u2013\u2014]|[ \t]+)[ \t]*([^\n]*)$", 
         re.IGNORECASE | re.MULTILINE
     )
     matches = list(pattern.finditer(plain_text))
     
-    # Pre-filter TOC by checking distance to next match
-    real_matches = []
-    for i, match in enumerate(matches):
-        start_idx = match.end()
-        end_idx = matches[i+1].start() if i + 1 < len(matches) else len(plain_text)
-        text_between = plain_text[start_idx:end_idx].strip()
-        if len(text_between) < 15 and not any(w in text_between.lower() for w in ["none", "not applicable", "omitted"]):
-            continue
-        real_matches.append(match)
-        
     ITEM_ORDER = {
         "1": 1, "1A": 2, "1B": 3, "1C": 4, "2": 5, "3": 6, "4": 7, "5": 8, 
         "6": 9, "7": 10, "7A": 11, "8": 12, "9": 13, "9A": 14, "9B": 15, 
@@ -43,29 +33,60 @@ def split_10k_sections(plain_text: str) -> list[Section]:
     }
     
     valid_matches = []
-    max_item_idx = -1
-    
-    for match in real_matches:
+    for match in matches:
         item = match.group(1).upper().replace(" ", "")
-        idx = ITEM_ORDER.get(item, -1)
-        if idx != -1:
-            if idx <= max_item_idx:
+        delim = match.group(2)
+        title = match.group(3).strip()
+        
+        if delim.strip() == "" and title:
+            item_prefixes = {
+                "1": ["BUSINESS"], "1A": ["RISK"], "1B": ["UNRESOLVED"], "1C": ["CYBERSECURITY"],
+                "2": ["PROPERTIES"], "3": ["LEGAL"], "4": ["MINE"], "5": ["MARKET"], "6": ["SELECTED"],
+                "7": ["MANAGEMENT"], "7A": ["QUANTITATIVE"], "8": ["FINANCIAL"], "9": ["CHANGES"],
+                "9A": ["CONTROLS"], "9B": ["OTHER"], "10": ["DIRECTORS"], "11": ["EXECUTIVE"],
+                "12": ["SECURITY"], "13": ["CERTAIN"], "14": ["PRINCIPAL"], "15": ["EXHIBITS"]
+            }
+            allowed = item_prefixes.get(item, [])
+            if not any(title.upper().startswith(p) for p in allowed):
                 continue
-            max_item_idx = idx
-            
-        title = match.group(2).strip()
+                
         if re.search(r'\.{4,}', title):
             continue
-        valid_matches.append((match, title))
+            
+        valid_matches.append((match, item, title))
         
-    for i, (match, title) in enumerate(valid_matches):
-        item = match.group(1).upper().replace(" ", "")
+    sequences = []
+    current_seq = []
+    max_idx = -1
+    
+    for m in valid_matches:
+        idx = ITEM_ORDER.get(m[1], -1)
+        if idx <= max_idx and idx != -1:
+            sequences.append(current_seq)
+            current_seq = []
+            max_idx = -1
+        current_seq.append(m)
+        if idx != -1:
+            max_idx = idx
+            
+    if current_seq:
+        sequences.append(current_seq)
         
+    best_seq = []
+    best_span = -1
+    
+    for i, seq in enumerate(sequences):
+        if not seq: continue
+        start_char = seq[0][0].start()
+        end_char = sequences[i+1][0][0].start() if i + 1 < len(sequences) and sequences[i+1] else len(plain_text)
+        span = end_char - start_char
+        if span > best_span:
+            best_span = span
+            best_seq = seq
+            
+    for i, (match, item, title) in enumerate(best_seq):
         start_idx = match.end()
-        # Find where the next valid match starts, or EOF
-        # We must look at valid_matches[i+1]
-        end_idx = valid_matches[i+1][0].start() if i + 1 < len(valid_matches) else len(plain_text)
-        
+        end_idx = best_seq[i+1][0].start() if i + 1 < len(best_seq) else len(plain_text)
         text = plain_text[start_idx:end_idx].strip()
         sections.append(Section(item=item, title=title, text=text))
         
