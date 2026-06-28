@@ -81,50 +81,68 @@ def align_by_period(
 def build_financial_summary(
     series_by_concept: dict[str, list[tuple[date, float]]],
 ) -> list[FinancialSummaryRow]:
-    """Deterministic trajectory table: one row per fiscal year, sorted ASC.
+    """Deterministic trajectory table: one row per fiscal year, sorted ASC."""
+    rev_series = resolve_series(series_by_concept, REVENUE_CONCEPTS)
+    gross_series = series_by_concept.get("GrossProfit", [])
+    op_series = series_by_concept.get("OperatingIncomeLoss", [])
+    net_series = series_by_concept.get("NetIncomeLoss", [])
+    ocf_series = series_by_concept.get("NetCashProvidedByUsedInOperatingActivities", [])
+    capex_series = series_by_concept.get("PaymentsToAcquirePropertyPlantAndEquipment", [])
+    debt_series = series_by_concept.get("LongTermDebtNoncurrent", [])
+    equity_series = series_by_concept.get("StockholdersEquity", [])
 
-    Revenue concept resolution (priority — first concept with data wins):
-        1. ``RevenueFromContractWithCustomerExcludingAssessedTax``
-        2. ``Revenues``
+    # Filter out SENTINEL_PERIOD_END and None defensively
+    def filter_defensive(series):
+        return [(d, v) for d, v in series if d != SENTINEL_PERIOD_END and v is not None]
 
-    Period alignment:
-        Every ratio combines two concepts and **must align on identical
-        ``period_end``**. Build a date→value map per concept; only compute a
-        metric for periods present in *both* series. Use ``align_by_period``.
+    rev_series = filter_defensive(rev_series)
+    gross_series = filter_defensive(gross_series)
+    op_series = filter_defensive(op_series)
+    net_series = filter_defensive(net_series)
+    ocf_series = filter_defensive(ocf_series)
+    capex_series = filter_defensive(capex_series)
+    debt_series = filter_defensive(debt_series)
+    equity_series = filter_defensive(equity_series)
 
-    Metrics (``None`` when inputs missing or denominator is zero/``None`` —
-    no function may raise on missing data):
-
-        +-------------------+--------------------------------------------------+
-        | Metric            | Formula                                          |
-        +-------------------+--------------------------------------------------+
-        | Revenue YoY       | ``(rev_t - rev_{t-1}) / rev_{t-1}``              |
-        | Gross margin      | ``GrossProfit / Revenue``                        |
-        | Operating margin  | ``OperatingIncomeLoss / Revenue``                |
-        | Net margin        | ``NetIncomeLoss / Revenue``                      |
-        | Free cash flow    | ``OCF - Capex`` (see sign note below)            |
-        | FCF margin        | ``FCF / Revenue``                                |
-        | Debt-to-equity    | ``LongTermDebtNoncurrent / StockholdersEquity``  |
-        | ROE               | ``NetIncomeLoss / StockholdersEquity``           |
-        +-------------------+--------------------------------------------------+
-
-    FCF sign convention:
-        XBRL reports ``PaymentsToAcquirePropertyPlantAndEquipment`` as a positive
-        outflow magnitude → ``FCF = NetCashProvidedByUsedInOperatingActivities
-        - PaymentsToAcquirePropertyPlantAndEquipment``. A sign error here silently
-        corrupts the number.
-
-    Hard rules:
-        - Exclude ``1970-01-01`` sentinel and NULL values (re-assert defensively
-          even though ``get_financial_series`` filters upstream).
-        - Division guards: denominator ``None`` or ``0`` → metric ``None``.
-        - No annualization / no quarter mixing — inputs are 10-K annual facts.
-
-    Checklist (Part A2):
-        - [ ] ``REVENUE_CONCEPTS`` priority via ``resolve_series``
-        - [ ] ``align_by_period`` for all multi-concept metrics
-        - [ ] YoY across consecutive revenue periods only
-        - [ ] Sentinel exclusion defensive filter
-        - [ ] Every edge returns ``None``, never raises
-    """
-    pass
+    all_dates = set()
+    for s in [rev_series, gross_series, op_series, net_series, ocf_series, capex_series, debt_series, equity_series]:
+        all_dates.update(d for d, _ in s)
+    
+    gross_margin_data = {d: (g/r if r else None) for d, (g, r) in align_by_period(gross_series, rev_series)}
+    op_margin_data = {d: (o/r if r else None) for d, (o, r) in align_by_period(op_series, rev_series)}
+    net_margin_data = {d: (n/r if r else None) for d, (n, r) in align_by_period(net_series, rev_series)}
+    fcf_data = {d: (ocf - capex) for d, (ocf, capex) in align_by_period(ocf_series, capex_series)}
+    
+    fcf_series = [(d, v) for d, v in fcf_data.items()]
+    fcf_margin_data = {d: (fcf/r if r else None) for d, (fcf, r) in align_by_period(fcf_series, rev_series)}
+    debt_equity_data = {d: (debt/eq if eq else None) for d, (debt, eq) in align_by_period(debt_series, equity_series)}
+    roe_data = {d: (n/eq if eq else None) for d, (n, eq) in align_by_period(net_series, equity_series)}
+    
+    rev_map = dict(rev_series)
+    
+    rows = []
+    sorted_dates = sorted(list(all_dates))
+    for i, d in enumerate(sorted_dates):
+        rev = rev_map.get(d)
+        
+        rev_yoy = None
+        if rev is not None and i > 0:
+            prev_d = sorted_dates[i-1]
+            prev_rev = rev_map.get(prev_d)
+            if prev_rev and (d - prev_d).days <= 400:
+                rev_yoy = (rev - prev_rev) / prev_rev
+                
+        rows.append(FinancialSummaryRow(
+            period_end=d,
+            revenue=rev,
+            revenue_yoy=rev_yoy,
+            gross_margin=gross_margin_data.get(d),
+            operating_margin=op_margin_data.get(d),
+            net_margin=net_margin_data.get(d),
+            fcf=fcf_data.get(d),
+            fcf_margin=fcf_margin_data.get(d),
+            debt_to_equity=debt_equity_data.get(d),
+            roe=roe_data.get(d),
+        ))
+        
+    return rows

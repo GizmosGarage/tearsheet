@@ -57,27 +57,78 @@ class TestBuildFinancialSummary:
     """Derived metrics edge cases — must return None, never raise."""
 
     def test_revenue_yoy_consecutive_years(self):
-        pass
+        series_by_concept = {
+            "Revenues": [(date(2020, 12, 31), 100.0), (date(2021, 12, 31), 150.0)]
+        }
+        summary = build_financial_summary(series_by_concept)
+        assert len(summary) == 2
+        assert summary[0].revenue_yoy is None
+        assert summary[1].revenue_yoy == 0.5
 
     def test_revenue_yoy_single_year_returns_none(self):
         # - [ ] Only one revenue period → revenue_yoy is None
-        pass
+        series_by_concept = {
+            "Revenues": [(date(2020, 12, 31), 100.0)]
+        }
+        summary = build_financial_summary(series_by_concept)
+        assert len(summary) == 1
+        assert summary[0].revenue_yoy is None
+        
+        # Test non-consecutive gap
+        series_gap = {
+            "Revenues": [(date(2019, 12, 31), 100.0), (date(2021, 12, 31), 150.0)]
+        }
+        summary_gap = build_financial_summary(series_gap)
+        assert summary_gap[1].revenue_yoy is None
 
     def test_margins_align_on_shared_periods_only(self):
         # - [ ] Gross margin computed only when Revenue and GrossProfit share period_end
-        pass
+        series_by_concept = {
+            "Revenues": [(date(2021, 12, 31), 100.0)],
+            "GrossProfit": [(date(2021, 12, 31), 40.0), (date(2022, 12, 31), 50.0)]
+        }
+        summary = build_financial_summary(series_by_concept)
+        assert len(summary) == 2
+        
+        # 2021 shared
+        assert summary[0].period_end == date(2021, 12, 31)
+        assert summary[0].gross_margin == 0.4
+        
+        # 2022 not shared
+        assert summary[1].period_end == date(2022, 12, 31)
+        assert summary[1].gross_margin is None
 
     def test_fcf_sign_convention_ocf_minus_capex(self):
         # - [ ] FCF = OCF - capex (capex reported as positive outflow magnitude)
-        pass
+        series_by_concept = {
+            "NetCashProvidedByUsedInOperatingActivities": [(date(2021, 12, 31), 100.0)],
+            "PaymentsToAcquirePropertyPlantAndEquipment": [(date(2021, 12, 31), 30.0)]
+        }
+        summary = build_financial_summary(series_by_concept)
+        assert summary[0].fcf == 70.0 # 100 - 30
 
     def test_missing_denominator_returns_none(self):
         # - [ ] Zero or missing denominator → metric None, not ZeroDivisionError
-        pass
+        series_by_concept = {
+            "Revenues": [(date(2021, 12, 31), 0.0)],
+            "GrossProfit": [(date(2021, 12, 31), 40.0)],
+            "StockholdersEquity": [(date(2021, 12, 31), 0.0)],
+            "LongTermDebtNoncurrent": [(date(2021, 12, 31), 50.0)],
+            "NetIncomeLoss": [(date(2021, 12, 31), 10.0)]
+        }
+        summary = build_financial_summary(series_by_concept)
+        assert summary[0].gross_margin is None
+        assert summary[0].debt_to_equity is None
+        assert summary[0].roe is None
 
     def test_sentinel_period_excluded(self):
         # - [ ] date(1970, 1, 1) excluded defensively
-        pass
+        series_by_concept = {
+            "Revenues": [(date(1970, 1, 1), 100.0), (date(2021, 12, 31), 100.0)]
+        }
+        summary = build_financial_summary(series_by_concept)
+        assert len(summary) == 1
+        assert summary[0].period_end == date(2021, 12, 31)
 
     def test_all_metrics_none_on_empty_input(self):
-        pass
+        assert build_financial_summary({}) == []
