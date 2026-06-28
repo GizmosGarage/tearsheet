@@ -107,12 +107,15 @@ def test_save_qualitative_facts():
     f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="001"))
     doc = repo.save_documents([Document(filing_id=f.id, section="1A", text="text1")])[0]
     
-    fact = QualitativeFact(company_id=c.id, category="risk", summary="Risk 1")
-    citation = Citation(document_id=doc.id, quote="quote", start_offset=0, end_offset=5)
-    fact.citations = [citation]
+    fact = QualitativeFact(company_id=c.id, category="Risk", summary="Bad")
+    cit = Citation(document_id=doc.id, quote="Bad things", start_offset=0, end_offset=10)
+    fact.citations.append(cit)
     
-    # Assuming the signature was changed to take only facts
     saved = repo.save_qualitative_facts([fact])
     assert len(saved) == 1
     assert saved[0].id is not None
-    assert saved[0].citations[0].id is not None
+    assert len(saved[0].citations) == 1
+    
+    # Verify deep eager loading (no DetachedInstanceError outside session)
+    assert saved[0].company.ticker == "AAPL"
+    assert saved[0].citations[0].document.section == "1A"

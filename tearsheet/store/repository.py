@@ -198,5 +198,8 @@ class Repository:
             return list(session.scalars(
                 select(QualitativeFact)
                 .where(QualitativeFact.id.in_(saved_facts))
-                .options(selectinload(QualitativeFact.citations))
+                .options(
+                    selectinload(QualitativeFact.company),
+                    selectinload(QualitativeFact.citations).selectinload(Citation.document)
+                )
             ).all())
