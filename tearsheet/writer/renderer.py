@@ -81,14 +81,45 @@ def render_dossier(
     errors: list[str] | None = None,
 ) -> str:
     """Render a fully-cited Markdown dossier."""
+    facts_by_cat = {}
+    for fact in qualitative_facts:
+        facts_by_cat.setdefault(fact.category, []).append(fact)
+
     blocks = []
     
-    mda_cats = ["liquidity", "kpi", "forward_looking_sentiment"]
-    other_facts = [f for f in qualitative_facts if f.category not in mda_cats]
+    # Header
+    filing_str = f" (Latest filing: {filing.filed_date} | {filing.accession_number})" if filing else ""
+    blocks.append(f"# {company.name} ({company.ticker}){filing_str}\n")
+    blocks.append(f"CIK: {company.cik}\n")
     
-    for fact in other_facts:
-        blocks.append(_render_fact(fact))
+    # Section 1
+    blocks.append("## 1. Business in Plain English")
+    for f in facts_by_cat.get("revenue_stream", []):
+        blocks.append(_render_fact(f))
         
-    blocks.append(_render_section_3(qualitative_facts, financial_summary))
+    # Section 2
+    blocks.append("\n## 2. Competitive Position")
+    blocks.append("### Competitors")
+    for f in facts_by_cat.get("competitor", []):
+        blocks.append(_render_fact(f))
+    blocks.append("\n### Moats / Durable Advantages")
+    for f in facts_by_cat.get("competitive_moat", []):
+        blocks.append(_render_fact(f))
+        
+    # Section 3
+    blocks.append("\n" + _render_section_3(qualitative_facts, financial_summary))
     
-    return "\n\n".join(blocks)
+    # Section 4
+    blocks.append("\n## 4. Risks / Bear Case")
+    for f in facts_by_cat.get("risk_factor", []):
+        blocks.append(_render_fact(f))
+        
+    # Footer
+    blocks.append("\n---\n")
+    blocks.append(f"**Total facts extracted:** {len(qualitative_facts)}")
+    if errors:
+        blocks.append("\n**Pipeline Errors:**")
+        for e in errors:
+            blocks.append(f"- {e}")
+            
+    return "\n".join(blocks)

@@ -43,11 +43,19 @@ class TestRenderDossierSections:
 
     def test_section_headers_present(self):
         # - [ ] Header, Sections 1–4, footer
-        pass
+        out = render_dossier(_make_company(), None, [], [])
+        assert "# NVIDIA Corporation (NVDA)" in out
+        assert "## 1. Business in Plain English" in out
+        assert "## 2. Competitive Position" in out
+        assert "## 3. Financial Shape" in out
+        assert "## 4. Risks / Bear Case" in out
+        assert "Total facts extracted:" in out
 
     def test_competitive_position_subsections(self):
         # - [ ] "Competitors" and "Moats / Durable Advantages" under Section 2
-        pass
+        out = render_dossier(_make_company(), None, [], [])
+        assert "### Competitors" in out
+        assert "### Moats / Durable Advantages" in out
 
     def test_mda_categories_under_section_3(self):
         # - [ ] liquidity, kpi, forward_looking_sentiment render under Financial Shape
