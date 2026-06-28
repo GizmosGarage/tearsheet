@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -55,6 +56,74 @@ class Repository:
     def get_company_by_ticker(self, ticker: str) -> Company | None:
         with self._session_ctx() as session:
             return session.scalar(select(Company).where(Company.ticker == ticker))
+
+    # --- Read surface (writer layer) ---
+
+    def get_qualitative_facts(
+        self, company_id: int, category: str | None = None
+    ) -> list[QualitativeFact]:
+        """All qualitative facts for a company, optionally filtered to one category.
+
+        Eager-loads ``citations -> document`` so the renderer can show spans and
+        section outside the session (mirrors ``save_qualitative_facts``).
+
+        Results are ordered by ``(category, id)``.
+        """
+        from sqlalchemy.orm import selectinload
+        with self._session_ctx() as session:
+            stmt = select(QualitativeFact).where(QualitativeFact.company_id == company_id)
+            if category is not None:
+                stmt = stmt.where(QualitativeFact.category == category)
+            stmt = stmt.options(
+                selectinload(QualitativeFact.citations).selectinload(Citation.document)
+            )
+            stmt = stmt.order_by(QualitativeFact.category, QualitativeFact.id)
+            return list(session.scalars(stmt).all())
+
+    def get_financial_facts(
+        self, company_id: int, concept: str | None = None
+    ) -> list[FinancialFact]:
+        """Raw financial facts, optionally filtered to one concept.
+
+        Results are ordered by ``period_end`` ascending.
+
+        Checklist (Part A1):
+        - [ ] Optional ``concept`` filter on ``FinancialFact.concept``
+        - [ ] ``order_by(FinancialFact.period_end.asc())``
+        """
+        pass
+
+    def get_financial_series(
+        self, company_id: int, concept: str
+    ) -> list[tuple[date, float]]:
+        """Convenience wrapper: ``(period_end, value)`` points for one concept.
+
+        Sorted ascending by ``period_end``. This is the metrics layer's primary
+        input and **must centralize data hygiene** so math never re-implements it:
+
+        - **Exclude** the ``1970-01-01`` sentinel (missing-date facts persisted by
+          ``save_financial_facts`` when ``period_end`` is NULL).
+        - **Exclude** rows where ``value`` is NULL.
+
+        Checklist (Part A1):
+        - [ ] Delegate to ``get_financial_facts`` or equivalent query
+        - [ ] Filter out ``period_end == date(1970, 1, 1)``
+        - [ ] Filter out ``value is None``
+        - [ ] Return ``list[tuple[date, float]]`` sorted ASC
+        """
+        pass
+
+    def get_latest_filing(self, company_id: int) -> Filing | None:
+        """Most recent filing for dossier header provenance.
+
+        Ordered by ``filed_date`` descending, then ``id`` descending as tiebreaker.
+
+        Checklist (Part A1):
+        - [ ] Filter ``Filing.company_id == company_id``
+        - [ ] ``order_by(Filing.filed_date.desc(), Filing.id.desc())``
+        - [ ] Return first row or ``None``
+        """
+        pass
 
     # --- Filing ---
 

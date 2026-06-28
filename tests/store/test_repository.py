@@ -119,3 +119,33 @@ def test_save_qualitative_facts():
     # Verify deep eager loading (no DetachedInstanceError outside session)
     assert saved[0].company.ticker == "AAPL"
     assert saved[0].citations[0].document.section == "1A"
+
+def test_get_qualitative_facts():
+    repo = Repository()
+    c = repo.upsert_company(ticker="GETQFACTS", cik="888")
+    f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="001"))
+    doc = repo.save_documents([Document(filing_id=f.id, section="1A", text="text1")])[0]
+    
+    fact1 = QualitativeFact(company_id=c.id, category="risk_factor", summary="Risk 1")
+    cit1 = Citation(document_id=doc.id, quote="Bad things 1", start_offset=0, end_offset=10)
+    fact1.citations.append(cit1)
+    
+    fact2 = QualitativeFact(company_id=c.id, category="competitor", summary="Comp 1")
+    cit2 = Citation(document_id=doc.id, quote="Bad things 2", start_offset=11, end_offset=20)
+    fact2.citations.append(cit2)
+    
+    repo.save_qualitative_facts([fact1, fact2])
+    
+    # Read without session scope (testing eager load)
+    all_facts = repo.get_qualitative_facts(company_id=c.id)
+    assert len(all_facts) == 2
+    assert all_facts[0].category == "competitor"  # alphabetical sort by category
+    assert all_facts[1].category == "risk_factor"
+    
+    # Test relationship eager load outside session
+    assert all_facts[0].citations[0].document.section == "1A"
+    
+    # Test filter
+    filtered = repo.get_qualitative_facts(company_id=c.id, category="risk_factor")
+    assert len(filtered) == 1
+    assert filtered[0].summary == "Risk 1"
