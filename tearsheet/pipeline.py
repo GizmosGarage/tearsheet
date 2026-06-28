@@ -8,7 +8,7 @@ from tearsheet.edgar.submissions import get_filing_history
 from tearsheet.edgar.filings import locate_filing, download_filing_documents
 from tearsheet.edgar.xbrl import fetch_companyfacts
 from tearsheet.parse.documents import build_documents
-from tearsheet.extract.qualitative import extract_risk_factors
+from tearsheet.extract.qualitative import extract_risk_factors, extract_business, extract_management_discussion
 from tearsheet.extract.financials import extract_financial_facts
 from tearsheet.store.repository import Repository
 from tearsheet.store.models import Filing, QualitativeFact, FinancialFact
@@ -68,21 +68,44 @@ class ExecutionPipeline:
         logger.info("Saving document sections to repository")
         saved_docs = self.repo.save_documents(documents)
         
-        # Find 1A
-        doc_1a = None
-        for d in saved_docs:
-            if d.section == "1A":
-                doc_1a = d
-                break
-                
-        if not doc_1a:
-            raise ValueError(f"Could not find Item 1A in the parsed documents for {ticker}")
-            
-        logger.info(f"Extracting risk factors from Item 1A (ID: {doc_1a.id})")
-        facts = extract_risk_factors(doc_1a)
+        docs_by_section = {d.section: d for d in saved_docs}
+        all_qual_facts = []
+        routes = [
+            ("1A", extract_risk_factors),
+            ("1",  extract_business),
+            ("7",  extract_management_discussion)
+        ]
         
-        logger.info(f"Saving {len(facts)} qualitative facts to repository")
-        saved_qual_facts = self.repo.save_qualitative_facts(facts)
+        for section, extractor in routes:
+            doc = docs_by_section.get(section)
+            if doc is None:
+                msg = f"Section {section} not found for {ticker}"
+                logger.warning(msg)
+                errors.append(msg)
+                continue
+            
+            logger.info(f"Extracting facts from Item {section} (ID: {doc.id})")
+            try:
+                facts = extractor(doc)
+                all_qual_facts.extend(facts)
+            except Exception as e:
+                msg = f"{section} extraction failed: {e}"
+                logger.error(msg)
+                errors.append(msg)
+                
+        # Global span-deduplication across all categories
+        seen_spans = set()
+        unique_qual_facts = []
+        for fact in all_qual_facts:
+            # We assume exactly 1 citation per qualitative fact as constructed by extractors
+            cit = fact.citations[0]
+            span_key = (cit.document_id, cit.start_offset, cit.end_offset)
+            if span_key not in seen_spans:
+                seen_spans.add(span_key)
+                unique_qual_facts.append(fact)
+        
+        logger.info(f"Saving {len(unique_qual_facts)} qualitative facts to repository")
+        saved_qual_facts = self.repo.save_qualitative_facts(unique_qual_facts)
         
         logger.info(f"Pipeline complete for {ticker}")
         

@@ -62,10 +62,17 @@ def test_pipeline_run_for_ticker(mock_extract_fin, mock_fetch_fin, mock_llm_cls,
     mock_filings_client.return_value = mock_fc
     
     # Mock LLM Client
+    from tearsheet.extract.schemas import RiskList, RiskFactor, BusinessProfile, MDAnalysis, GroundedItem
+    def mock_complete(system_prompt, user_prompt, response_model):
+        if response_model == RiskList:
+            return RiskList(risks=[RiskFactor(summary="Supply chain risk", exact_quote="We might run out of chips.")])
+        elif response_model == BusinessProfile:
+            return BusinessProfile(revenue_streams=[GroundedItem(summary="Phones", exact_quote="sell phones.")])
+        elif response_model == MDAnalysis:
+            return MDAnalysis()
+            
     mock_llm = MagicMock()
-    mock_llm.complete_structured.return_value = RiskList(risks=[
-        RiskFactor(summary="Supply chain risk", exact_quote="We might run out of chips.")
-    ])
+    mock_llm.complete_structured.side_effect = mock_complete
     mock_llm_cls.return_value = mock_llm
     
     # Mock Financials
@@ -76,7 +83,8 @@ def test_pipeline_run_for_ticker(mock_extract_fin, mock_fetch_fin, mock_llm_cls,
     
     # Patch config directories so we don't pollute global state
     with patch("tearsheet.config.RAW_FILINGS_DIR", tmp_path / "raw"), \
-         patch("tearsheet.config.SEC_TICKER_MAP_URL", "http://mock"):
+         patch("tearsheet.config.SEC_TICKER_MAP_URL", "http://mock"), \
+         patch("tearsheet.extract.qualitative._load_prompt", return_value="Test prompt"):
         
         # Run pipeline
         pipeline = ExecutionPipeline()
@@ -84,18 +92,31 @@ def test_pipeline_run_for_ticker(mock_extract_fin, mock_fetch_fin, mock_llm_cls,
         
         assert result["ticker"] == "AAPL"
         assert result["cik"] == "0000320193"
-        assert result["status"] == "success"
+        # Item 7 is missing, so it will log an error and return completed_with_errors
+        assert result["status"] == "completed_with_errors"
+        assert len(result["errors"]) == 1
+        assert "Section 7 not found" in result["errors"][0]
+        
         assert result["financial_facts_count"] == 1
-        assert result["qualitative_facts_count"] == 1
-        assert not result["errors"]
+        assert result["qualitative_facts_count"] == 2
         
         facts = result["qualitative_facts"]
-        assert len(facts) == 1
-        assert facts[0].summary == "Supply chain risk"
-        assert facts[0].company.ticker == "AAPL"
-        assert len(facts[0].citations) == 1
-        assert facts[0].citations[0].quote == "We might run out of chips."
-        assert facts[0].citations[0].document.section == "1A"
+        assert len(facts) == 2
+        
+        # Check risk factor
+        risk = next(f for f in facts if f.category == "risk_factor")
+        assert risk.summary == "Supply chain risk"
+        assert risk.company.ticker == "AAPL"
+        assert len(risk.citations) == 1
+        assert risk.citations[0].quote == "We might run out of chips."
+        assert risk.citations[0].document.section == "1A"
+
+        # Check business profile
+        biz = next(f for f in facts if f.category == "revenue_stream")
+        assert biz.summary == "Phones"
+        assert len(biz.citations) == 1
+        assert biz.citations[0].quote == "sell phones."
+        assert biz.citations[0].document.section == "1"
 
         fin_facts = result["financial_facts"]
         assert len(fin_facts) == 1
@@ -138,26 +159,33 @@ def test_pipeline_financials_failure_does_not_abort_qualitative(mock_fetch_fin, 
     mock_filings_client.return_value = mock_fc
     
     # Mock LLM Client
+    from tearsheet.extract.schemas import RiskList, RiskFactor, BusinessProfile, MDAnalysis
+    def mock_complete(system_prompt, user_prompt, response_model):
+        if response_model == RiskList:
+            return RiskList(risks=[RiskFactor(summary="Supply chain risk", exact_quote="We might run out of chips.")])
+        elif response_model == BusinessProfile:
+            return BusinessProfile()
+        elif response_model == MDAnalysis:
+            return MDAnalysis()
+            
     mock_llm = MagicMock()
-    mock_llm.complete_structured.return_value = RiskList(risks=[
-        RiskFactor(summary="Supply chain risk", exact_quote="We might run out of chips.")
-    ])
+    mock_llm.complete_structured.side_effect = mock_complete
     mock_llm_cls.return_value = mock_llm
     
     # Induce failure in financials
     mock_fetch_fin.side_effect = Exception("Network timeout")
     
     with patch("tearsheet.config.RAW_FILINGS_DIR", tmp_path / "raw"), \
-         patch("tearsheet.config.SEC_TICKER_MAP_URL", "http://mock"):
+         patch("tearsheet.config.SEC_TICKER_MAP_URL", "http://mock"), \
+         patch("tearsheet.extract.qualitative._load_prompt", return_value="Test prompt"):
         
         # Run pipeline
         pipeline = ExecutionPipeline()
         result = pipeline.run_for_ticker("AAPL")
         
-        # Financials failed, but it should still return qualitative facts
+        # Financials failed, 1 missing, 7 missing -> 3 errors total
         assert result["status"] == "completed_with_errors"
-        assert len(result["errors"]) == 1
-        assert "Network timeout" in result["errors"][0]
+        assert len(result["errors"]) == 3
         
         assert result["financial_facts_count"] == 0
         assert result["qualitative_facts_count"] == 1
