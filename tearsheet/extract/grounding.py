@@ -12,6 +12,7 @@ class GroundedSpan:
     """A quote verified against source text."""
 
     quote: str
+    summary: str
     start_offset: int
     end_offset: int
     document_id: int
@@ -41,6 +42,7 @@ def verify_quote_span(
         
     return GroundedSpan(
         quote=quote.exact_quote,
+        summary=quote.summary,
         start_offset=start_offset,
         end_offset=start_offset + len(quote.exact_quote),
         document_id=document_id

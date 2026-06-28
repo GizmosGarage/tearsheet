@@ -25,13 +25,43 @@ def extract_qualitative_facts(
     raise NotImplementedError
 
 
+from tearsheet.extract.grounding import verify_quotes
+from tearsheet.store.models import Citation
+
 def extract_risk_factors(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> RiskList:
+) -> list[QualitativeFact]:
     """Extract risk factors from Item 1A."""
-    raise NotImplementedError
+    llm = llm or LLMClient()
+    system_prompt = _load_prompt("risk_factors.txt")
+    
+    parsed = llm.complete_structured(
+        system_prompt=system_prompt,
+        user_prompt=document.text,
+        response_model=RiskList,
+    )
+    
+    grounding_result = verify_quotes(document.text, parsed.risks, document_id=document.id)
+    
+    facts = []
+    for span in grounding_result.accepted:
+        fact = QualitativeFact(
+            company_id=document.filing.company_id,
+            category="risk_factor",
+            summary=span.summary
+        )
+        citation = Citation(
+            document_id=span.document_id,
+            quote=span.quote,
+            start_offset=span.start_offset,
+            end_offset=span.end_offset
+        )
+        fact.citations = [citation]
+        facts.append(fact)
+        
+    return facts
 
 
 def extract_competition(
