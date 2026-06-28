@@ -82,7 +82,25 @@ def test_save_financial_facts():
     saved = repo.save_financial_facts(facts)
     assert len(saved) == 2
     assert saved[0].id is not None
+    assert saved[0].period_end == date(1970, 1, 1)
 
+def test_save_financial_facts_null_dedupe():
+    repo = Repository()
+    c = repo.upsert_company(ticker="NULLCO", cik="0005")
+    
+    # Save a fact with no period_end
+    fact1 = FinancialFact(company_id=c.id, concept="Revenues", value=100.0)
+    saved1 = repo.save_financial_facts([fact1])
+    assert len(saved1) == 1
+    assert saved1[0].period_end == date(1970, 1, 1)
+    
+    # Save again, should deduplicate
+    fact2 = FinancialFact(company_id=c.id, concept="Revenues", value=200.0)
+    saved2 = repo.save_financial_facts([fact2])
+    assert len(saved2) == 1
+    assert saved2[0].id == saved1[0].id
+    assert saved2[0].value == 200.0
+    
 def test_save_qualitative_facts():
     repo = Repository()
     c = repo.upsert_company(ticker="AAPL", cik="0000320193")

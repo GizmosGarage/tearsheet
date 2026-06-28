@@ -65,7 +65,7 @@ class FinancialFact(Base):
     concept: Mapped[str] = mapped_column(String(128), index=True)
     label: Mapped[str | None] = mapped_column(String(256), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    period_end: Mapped[date | None] = mapped_column(Date, nullable=True)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False, default=date(1970, 1, 1))
     value: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

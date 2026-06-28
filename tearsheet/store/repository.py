@@ -122,15 +122,17 @@ class Repository:
             return []
             
         from sqlalchemy.dialects.sqlite import insert
+        from datetime import date
         fact_ids = []
         with self._session_ctx() as session:
             for f in facts:
+                p_end = f.period_end or date(1970, 1, 1)
                 stmt = insert(FinancialFact).values(
                     company_id=f.company_id,
                     concept=f.concept,
                     label=f.label,
                     unit=f.unit,
-                    period_end=f.period_end,
+                    period_end=p_end,
                     value=f.value
                 )
                 stmt = stmt.on_conflict_do_update(
