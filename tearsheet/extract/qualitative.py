@@ -98,6 +98,12 @@ def _chunk_text(text: str, chunk_size: int = 40000, overlap: int = 4000) -> list
             current_chunk_paras = overlap_paras
             current_len = sum(len(x) for x in current_chunk_paras)
             
+            # QA FIX: Enforce ceiling. If the overlap + new paragraph > chunk_size,
+            # we must shrink the overlap from the front until it fits.
+            while current_len + len(p) > chunk_size and current_chunk_paras:
+                dropped = current_chunk_paras.pop(0)
+                current_len -= len(dropped)
+            
         current_chunk_paras.append(p)
         current_len += len(p)
         i += 1

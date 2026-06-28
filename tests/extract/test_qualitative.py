@@ -44,6 +44,24 @@ class TestSemanticChunking:
         assert chunks_l[0] == "A"*100
         assert chunks_l[1] == "A"*50
 
+    def test_chunk_text_ceiling_enforcement(self):
+        # Create an edge case where overlap + next paragraph strictly exceeds chunk_size.
+        # chunk_size = 100, overlap = 20
+        # p1 = 30, p2 = 60, p3 = 30, p4 = 90
+        # Chunk 2 will end with p3 (30). Overlap for Chunk 3 will be p3 (30 chars > 20).
+        # Next is p4 (90). Overlap + p4 = 30 + 90 = 120 > 100.
+        # It must drop p3 from the overlap to fit p4.
+        text = "A"*28 + ".\n\n" + "B"*58 + ".\n\n" + "C"*28 + ".\n\n" + "D"*88 + ".\n\n"
+        chunks = _chunk_text(text, chunk_size=100, overlap=20)
+        
+        for i, c in enumerate(chunks):
+            assert len(c) <= 100, f"Chunk {i} exceeded max size: {len(c)}"
+            
+        assert chunks[0] == "A"*28 + ".\n\n" + "B"*58 + ".\n\n"
+        assert chunks[1] == "B"*58 + ".\n\n" + "C"*28 + ".\n\n"
+        # C is dropped from overlap to ensure D fits
+        assert chunks[2] == "D"*88 + ".\n\n"
+
     def test_extract_risk_factors_large_document(self):
         # Create a document > 100k characters (e.g. 101k)
         prefix = "A" * 40000 + "\n\n"
