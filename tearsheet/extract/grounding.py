@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tearsheet.extract.schemas import CitedQuote
+from tearsheet.extract.schemas import RiskFactor
 
 
 @dataclass(frozen=True)
@@ -22,12 +22,12 @@ class GroundingResult:
     """Outcome of grounding verification."""
 
     accepted: list[GroundedSpan]
-    rejected: list[CitedQuote]
+    rejected: list[RiskFactor]
 
 
 def verify_quote_span(
     source_text: str,
-    quote: CitedQuote,
+    quote: RiskFactor,
     *,
     document_id: int,
 ) -> GroundedSpan | None:
@@ -37,7 +37,7 @@ def verify_quote_span(
 
 def verify_quotes(
     source_text: str,
-    quotes: list[CitedQuote],
+    quotes: list[RiskFactor],
     *,
     document_id: int,
 ) -> GroundingResult:

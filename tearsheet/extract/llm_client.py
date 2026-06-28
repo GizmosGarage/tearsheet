@@ -33,4 +33,16 @@ class LLMClient:
         response_model: type[T],
     ) -> T:
         """Return a validated pydantic model from the LLM."""
-        raise NotImplementedError
+        if not self._client:
+            raise ValueError("OpenAI client not initialized (missing API key).")
+            
+        completion = self._client.beta.chat.completions.parse(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format=response_model,
+            temperature=0.0
+        )
+        return completion.parsed

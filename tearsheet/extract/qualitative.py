@@ -5,12 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from tearsheet.extract.llm_client import LLMClient
-from tearsheet.extract.schemas import (
-    BusinessExtraction,
-    CompetitionExtraction,
-    ManagementDiscussionExtraction,
-    RiskFactorExtraction,
-)
+from tearsheet.extract.schemas import RiskList
 from tearsheet.store.models import Document, QualitativeFact
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
@@ -34,7 +29,7 @@ def extract_risk_factors(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> RiskFactorExtraction:
+) -> RiskList:
     """Extract risk factors from Item 1A."""
     raise NotImplementedError
 
@@ -43,7 +38,7 @@ def extract_competition(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> CompetitionExtraction:
+) -> RiskList:
     """Extract competitive landscape from relevant sections."""
     raise NotImplementedError
 
@@ -52,7 +47,7 @@ def extract_business(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> BusinessExtraction:
+) -> RiskList:
     """Extract business description from Item 1."""
     raise NotImplementedError
 
@@ -61,6 +56,6 @@ def extract_management_discussion(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> ManagementDiscussionExtraction:
+) -> RiskList:
     """Extract MD&A highlights from Item 7."""
     raise NotImplementedError
