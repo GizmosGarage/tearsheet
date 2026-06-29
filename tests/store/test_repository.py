@@ -207,3 +207,33 @@ def test_get_financial_series():
     assert len(series) == 2
     assert series[0] == (date(2021, 12, 31), 100.0)
     assert series[1] == (date(2023, 12, 31), 300.0)
+
+def test_rerun_does_not_create_uncited_fact():
+    repo = Repository()
+    c = repo.upsert_company(ticker="RERUN", cik="123")
+    f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="001"))
+    doc = repo.save_documents([Document(filing_id=f.id, section="1A", text="text1")])[0]
+    
+    # Save first fact
+    fact1 = QualitativeFact(company_id=c.id, category="risk_factor", summary="Risk 1")
+    cit1 = Citation(document_id=doc.id, quote="span", start_offset=0, end_offset=10)
+    fact1.citations.append(cit1)
+    
+    saved1 = repo.save_qualitative_facts([fact1])
+    assert len(saved1) == 1
+    
+    # Save second fact with different summary but SAME citation span
+    fact2 = QualitativeFact(company_id=c.id, category="risk_factor", summary="Risk 2")
+    cit2 = Citation(document_id=doc.id, quote="span", start_offset=0, end_offset=10)
+    fact2.citations.append(cit2)
+    
+    saved2 = repo.save_qualitative_facts([fact2])
+    # The citation insert for fact2 will fail because the span is already owned by fact1.
+    # Therefore fact2 should not be surfaced.
+    
+    all_facts = repo.get_qualitative_facts(company_id=c.id)
+    for fact in all_facts:
+        assert len(fact.citations) > 0
+    
+    assert len(all_facts) == 1
+    assert all_facts[0].summary == "Risk 1"

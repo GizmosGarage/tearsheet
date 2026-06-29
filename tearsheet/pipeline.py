@@ -96,13 +96,19 @@ class ExecutionPipeline:
         # Global span-deduplication across all categories
         seen_spans = set()
         unique_qual_facts = []
+        discarded_uncited = 0
         for fact in all_qual_facts:
-            # We assume exactly 1 citation per qualitative fact as constructed by extractors
+            if not fact.citations:
+                discarded_uncited += 1
+                continue
             cit = fact.citations[0]
             span_key = (cit.document_id, cit.start_offset, cit.end_offset)
             if span_key not in seen_spans:
                 seen_spans.add(span_key)
                 unique_qual_facts.append(fact)
+                
+        if discarded_uncited:
+            logger.warning(f"Discarded {discarded_uncited} uncited qualitative facts before save")
         
         logger.info(f"Saving {len(unique_qual_facts)} qualitative facts to repository")
         saved_qual_facts = self.repo.save_qualitative_facts(unique_qual_facts)

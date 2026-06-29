@@ -190,3 +190,57 @@ def test_pipeline_financials_failure_does_not_abort_qualitative(mock_fetch_fin, 
         assert result["financial_facts_count"] == 0
         assert result["qualitative_facts_count"] == 1
         assert len(result["qualitative_facts"]) == 1
+
+@patch("tearsheet.edgar.tickers.get_client")
+@patch("tearsheet.edgar.submissions.get_client")
+@patch("tearsheet.edgar.filings.get_client")
+@patch("tearsheet.pipeline.fetch_companyfacts")
+@patch("tearsheet.pipeline.extract_financial_facts")
+@patch("tearsheet.pipeline.extract_risk_factors")
+@patch("tearsheet.pipeline.extract_business")
+@patch("tearsheet.pipeline.extract_management_discussion")
+def test_uncited_fact_discarded_before_save(
+    mock_mda, mock_business, mock_risk, mock_extract_fin, mock_fetch_fin,
+    mock_filings_client, mock_submissions_client, mock_tickers_client, tmp_path
+):
+    mock_tc = MagicMock()
+    mock_tc.get_json.return_value = {"0": {"ticker": "AAPL", "cik_str": 320193}}
+    mock_tickers_client.return_value = mock_tc
+    
+    mock_sc = MagicMock()
+    mock_sc.get_json.return_value = {
+        "name": "Apple Inc.", "cik": "0000320193",
+        "filings": {"recent": {"form": ["10-K"], "accessionNumber": ["0000320193-23-000106"], "primaryDocument": ["aapl-20230930.htm"]}}
+    }
+    mock_submissions_client.return_value = mock_sc
+    
+    mock_fc = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = b"<html><body><p>Item 1A. Risk Factors</p></body></html>"
+    mock_fc.get.return_value = mock_response
+    mock_filings_client.return_value = mock_fc
+    
+    mock_fetch_fin.return_value = {"facts": {}}
+    mock_extract_fin.return_value = []
+    
+    from tearsheet.store.models import QualitativeFact, Citation
+    valid_fact = QualitativeFact(company_id=1, category="risk_factor", summary="Valid")
+    valid_fact.citations = [Citation(document_id=1, quote="valid", start_offset=0, end_offset=5)]
+    
+    uncited_fact = QualitativeFact(company_id=1, category="risk_factor", summary="Uncited")
+    uncited_fact.citations = []
+    
+    mock_risk.return_value = [valid_fact, uncited_fact]
+    mock_business.return_value = []
+    mock_mda.return_value = []
+    
+    with patch("tearsheet.config.RAW_FILINGS_DIR", tmp_path / "raw"), \
+         patch("tearsheet.config.SEC_TICKER_MAP_URL", "http://mock"):
+        
+        pipeline = ExecutionPipeline()
+        result = pipeline.run_for_ticker("AAPL")
+        
+        facts = result["qualitative_facts"]
+        assert len(facts) == 1
+        assert facts[0].summary == "Valid"
+        assert result["qualitative_facts_count"] == 1

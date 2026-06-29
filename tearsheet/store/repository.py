@@ -234,6 +234,9 @@ class Repository:
         with self._session_ctx() as session:
             saved_facts = []
             for f in facts:
+                if not f.citations:
+                    continue
+                    
                 stmt = insert(QualitativeFact).values(
                     company_id=f.company_id,
                     category=f.category,
@@ -253,7 +256,7 @@ class Repository:
                     )
                 
                 if f_id:
-                    saved_facts.append(f_id)
+                    attached = False
                     for c in f.citations:
                         c_stmt = insert(Citation).values(
                             qualitative_fact_id=f_id,
@@ -264,8 +267,24 @@ class Repository:
                         )
                         c_stmt = c_stmt.on_conflict_do_nothing(
                             index_elements=["document_id", "start_offset", "end_offset"]
+                        ).returning(Citation.id)
+                        inserted_id = session.scalar(c_stmt)
+                        if inserted_id is not None:
+                            attached = True
+                            
+                    if not attached:
+                        # Span collided with a citation owned by a DIFFERENT fact, or no spans.
+                        # Verify whether THIS fact already owns a citation row before giving up:
+                        existing = session.scalar(
+                            select(Citation.id).where(Citation.qualitative_fact_id == f_id).limit(1)
                         )
-                        session.execute(c_stmt)
+                        attached = existing is not None
+                        
+                    if attached:
+                        saved_facts.append(f_id)
+                    else:
+                        from sqlalchemy import delete
+                        session.execute(delete(QualitativeFact).where(QualitativeFact.id == f_id))
                         
             return list(session.scalars(
                 select(QualitativeFact)
