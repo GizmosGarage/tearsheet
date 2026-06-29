@@ -78,6 +78,35 @@ def align_by_period(
     return result
 
 
+def collapse_series_by_fiscal_year(
+    series: list[tuple[date, float]],
+) -> dict[int, tuple[date, float]]:
+    """One representative (period_end, value) per fiscal year (latest period_end wins)."""
+    by_year: dict[int, tuple[date, float]] = {}
+    for d, v in series:
+        if d.year not in by_year or d > by_year[d.year][0]:
+            by_year[d.year] = (d, v)
+    return by_year
+
+
+def align_by_fiscal_year(
+    *series: list[tuple[date, float]],
+) -> list[tuple[date, tuple[float, ...]]]:
+    """Inner-join multiple series on fiscal year. Representative date = max period_end
+    among the joined series for that year. Only years present in ALL series survive."""
+    if not series:
+        return []
+    collapsed = [collapse_series_by_fiscal_year(s) for s in series]
+    common_years = set(collapsed[0])
+    for c in collapsed[1:]:
+        common_years &= set(c)
+    result = []
+    for y in sorted(common_years):
+        rep_date = max(c[y][0] for c in collapsed)
+        result.append((rep_date, tuple(c[y][1] for c in collapsed)))
+    return result
+
+
 def build_financial_summary(
     series_by_concept: dict[str, list[tuple[date, float]]],
 ) -> list[FinancialSummaryRow]:
@@ -104,45 +133,59 @@ def build_financial_summary(
     debt_series = filter_defensive(debt_series)
     equity_series = filter_defensive(equity_series)
 
-    all_dates = set()
+    all_years = set()
     for s in [rev_series, gross_series, op_series, net_series, ocf_series, capex_series, debt_series, equity_series]:
-        all_dates.update(d for d, _ in s)
+        all_years.update(d.year for d, _ in s)
     
-    gross_margin_data = {d: (g/r if r else None) for d, (g, r) in align_by_period(gross_series, rev_series)}
-    op_margin_data = {d: (o/r if r else None) for d, (o, r) in align_by_period(op_series, rev_series)}
-    net_margin_data = {d: (n/r if r else None) for d, (n, r) in align_by_period(net_series, rev_series)}
-    fcf_data = {d: (ocf - capex) for d, (ocf, capex) in align_by_period(ocf_series, capex_series)}
+    gross_margin_data = {d.year: (g/r if r else None) for d, (g, r) in align_by_fiscal_year(gross_series, rev_series)}
+    op_margin_data = {d.year: (o/r if r else None) for d, (o, r) in align_by_fiscal_year(op_series, rev_series)}
+    net_margin_data = {d.year: (n/r if r else None) for d, (n, r) in align_by_fiscal_year(net_series, rev_series)}
+    fcf_data = {d.year: (ocf - capex) for d, (ocf, capex) in align_by_fiscal_year(ocf_series, capex_series)}
     
-    fcf_series = [(d, v) for d, v in fcf_data.items()]
-    fcf_margin_data = {d: (fcf/r if r else None) for d, (fcf, r) in align_by_period(fcf_series, rev_series)}
-    debt_equity_data = {d: (debt/eq if eq else None) for d, (debt, eq) in align_by_period(debt_series, equity_series)}
-    roe_data = {d: (n/eq if eq else None) for d, (n, eq) in align_by_period(net_series, equity_series)}
+    fcf_series = [(date(y, 12, 31), v) for y, v in fcf_data.items()]
+    fcf_margin_data = {d.year: (fcf/r if r else None) for d, (fcf, r) in align_by_fiscal_year(fcf_series, rev_series)}
+    debt_equity_data = {d.year: (debt/eq if eq else None) for d, (debt, eq) in align_by_fiscal_year(debt_series, equity_series)}
+    roe_data = {d.year: (n/eq if eq else None) for d, (n, eq) in align_by_fiscal_year(net_series, equity_series)}
     
-    rev_map = dict(rev_series)
+    rev_by_year = collapse_series_by_fiscal_year(rev_series)
     
+    rep_dates = {}
+    for y in all_years:
+        dates_for_y = []
+        for s in [rev_series, gross_series, op_series, net_series, ocf_series, capex_series, debt_series, equity_series]:
+            for d, _ in s:
+                if d.year == y:
+                    dates_for_y.append(d)
+        rep_dates[y] = max(dates_for_y)
+        
     rows = []
-    sorted_dates = sorted(list(all_dates))
-    for i, d in enumerate(sorted_dates):
-        rev = rev_map.get(d)
+    sorted_years = sorted(list(all_years))
+    for i, y in enumerate(sorted_years):
+        rep_date = rep_dates[y]
+        
+        rev_info = rev_by_year.get(y)
+        rev = rev_info[1] if rev_info else None
         
         rev_yoy = None
         if rev is not None and i > 0:
-            prev_d = sorted_dates[i-1]
-            prev_rev = rev_map.get(prev_d)
-            if prev_rev and (d - prev_d).days <= 400:
-                rev_yoy = (rev - prev_rev) / prev_rev
+            prev_y = sorted_years[i-1]
+            if y - prev_y == 1:
+                prev_rev_info = rev_by_year.get(prev_y)
+                prev_rev = prev_rev_info[1] if prev_rev_info else None
+                if prev_rev:
+                    rev_yoy = (rev - prev_rev) / prev_rev
                 
         rows.append(FinancialSummaryRow(
-            period_end=d,
+            period_end=rep_date,
             revenue=rev,
             revenue_yoy=rev_yoy,
-            gross_margin=gross_margin_data.get(d),
-            operating_margin=op_margin_data.get(d),
-            net_margin=net_margin_data.get(d),
-            fcf=fcf_data.get(d),
-            fcf_margin=fcf_margin_data.get(d),
-            debt_to_equity=debt_equity_data.get(d),
-            roe=roe_data.get(d),
+            gross_margin=gross_margin_data.get(y),
+            operating_margin=op_margin_data.get(y),
+            net_margin=net_margin_data.get(y),
+            fcf=fcf_data.get(y),
+            fcf_margin=fcf_margin_data.get(y),
+            debt_to_equity=debt_equity_data.get(y),
+            roe=roe_data.get(y),
         ))
         
     return rows
