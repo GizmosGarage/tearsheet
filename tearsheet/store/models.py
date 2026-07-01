@@ -1,4 +1,5 @@
-"""ORM models: Company, Filing, SourceDocument, Document, FinancialFact, ExtractedSpan, Citation."""
+"""ORM models: Company, Filing, SourceDocument, Document, FinancialFact,
+ExtractedSpan, Citation, ExtractionRun, ExtractionGap."""
 
 from __future__ import annotations
 
@@ -6,6 +7,8 @@ from datetime import date, datetime
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+GAP_STATUSES = ("not_present", "not_found", "rejected_by_gate", "failed")
 
 
 class Base(DeclarativeBase):
@@ -24,6 +27,37 @@ class Company(Base):
     filings: Mapped[list[Filing]] = relationship(back_populates="company")
     financial_facts: Mapped[list[FinancialFact]] = relationship(back_populates="company")
     extracted_spans: Mapped[list[ExtractedSpan]] = relationship(back_populates="company")
+
+
+class ExtractionRun(Base):
+    """One pipeline execution: which extractor version produced what, when."""
+
+    __tablename__ = "extraction_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    extractor_version: Mapped[str] = mapped_column(String(64))
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    gaps: Mapped[list[ExtractionGap]] = relationship(back_populates="run")
+
+
+class ExtractionGap(Base):
+    """A typed record of something sought but not emitted. Statuses:
+    not_present | not_found | rejected_by_gate | failed (see GAP_STATUSES)."""
+
+    __tablename__ = "extraction_gaps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("extraction_runs.id"), index=True)
+    filing_id: Mapped[int | None] = mapped_column(ForeignKey("filings.id"), index=True, nullable=True)
+    target: Mapped[str] = mapped_column(String(256))
+    status: Mapped[str] = mapped_column(String(32))
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    run: Mapped[ExtractionRun] = relationship(back_populates="gaps")
 
 
 class Filing(Base):
@@ -70,6 +104,9 @@ class Document(Base):
     source_document_id: Mapped[int | None] = mapped_column(
         ForeignKey("source_documents.id"), index=True, nullable=True
     )
+    run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("extraction_runs.id"), index=True, nullable=True
+    )
     section: Mapped[str] = mapped_column(String(32))
     title: Mapped[str | None] = mapped_column(String(256), nullable=True)
     text: Mapped[str] = mapped_column(Text)
@@ -98,6 +135,9 @@ class FinancialFact(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("extraction_runs.id"), index=True, nullable=True
+    )
     concept: Mapped[str] = mapped_column(String(128), index=True)
     xbrl_concept: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
     accession_number: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
@@ -124,6 +164,9 @@ class ExtractedSpan(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("extraction_runs.id"), index=True, nullable=True
+    )
     category: Mapped[str] = mapped_column(String(64), index=True)
     label: Mapped[str | None] = mapped_column(Text, nullable=True)
     label_start_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)

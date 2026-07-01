@@ -21,12 +21,23 @@ def _load_prompt(name: str) -> str:
 
 
 from tearsheet.extract.grounding import verify_quotes
+from tearsheet.extract.schemas import LocatedQuote
 from tearsheet.store.models import Citation
 
 import re
 import logging
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SectionExtraction:
+    """Extraction outcome for one section: verified spans plus everything the
+    grounding gate rejected, so the pipeline can record typed gaps."""
+
+    spans: list[ExtractedSpan] = field(default_factory=list)
+    rejected: list[LocatedQuote] = field(default_factory=list)
 
 def _chunk_text(text: str, chunk_size: int = 40000, overlap: int = 4000) -> list[str]:
     """Semantic chunking of text by paragraphs."""
@@ -133,7 +144,7 @@ def extract_risk_factors(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> list[ExtractedSpan]:
+) -> SectionExtraction:
     """Extract risk factor spans from Item 1A.
 
     Chunks the section, asks the LLM to locate quotes (and each risk's own
@@ -169,10 +180,13 @@ def extract_risk_factors(
             seen_spans.add(span_key)
             unique_spans.append(span)
 
-    return [
-        _span_to_extracted(document.filing.company_id, "risk_factor", span)
-        for span in unique_spans
-    ]
+    return SectionExtraction(
+        spans=[
+            _span_to_extracted(document.filing.company_id, "risk_factor", span)
+            for span in unique_spans
+        ],
+        rejected=grounding_result.rejected,
+    )
 
 
 CATEGORY_RISK_FACTOR = "risk_factor"
@@ -189,7 +203,7 @@ def _extract_grouped(
     response_model: type,
     field_to_category: dict[str, str],
     llm: LLMClient | None = None,
-) -> list[ExtractedSpan]:
+) -> SectionExtraction:
     """Generalized grouped extractor (shared by business and MD&A paths)."""
     if document.id is None:
         raise ValueError("Document must be persisted before extraction.")
@@ -211,24 +225,29 @@ def _extract_grouped(
             candidates[category].extend(getattr(parsed, field))
 
     accepted_by_span = {}
+    all_rejected = []
     for category, items in candidates.items():
         result = verify_quotes(document.text, items, document_id=document.id)
+        all_rejected.extend(result.rejected)
         for span in result.accepted:
             key = (span.start_offset, span.end_offset)
             if key not in accepted_by_span:
                 accepted_by_span[key] = (category, span)
 
-    return [
-        _span_to_extracted(document.filing.company_id, category, span)
-        for (category, span) in accepted_by_span.values()
-    ]
+    return SectionExtraction(
+        spans=[
+            _span_to_extracted(document.filing.company_id, category, span)
+            for (category, span) in accepted_by_span.values()
+        ],
+        rejected=all_rejected,
+    )
 
 
 def extract_business(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> list[ExtractedSpan]:
+) -> SectionExtraction:
     """Extract business profile from Item 1."""
     return _extract_grouped(
         document=document,
@@ -247,7 +266,7 @@ def extract_management_discussion(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> list[ExtractedSpan]:
+) -> SectionExtraction:
     """Extract MD&A highlights from Item 7."""
     return _extract_grouped(
         document=document,

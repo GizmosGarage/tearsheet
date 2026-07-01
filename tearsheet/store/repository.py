@@ -11,10 +11,13 @@ from sqlalchemy.orm import Session
 
 from tearsheet.store.db import session_scope
 from tearsheet.store.models import (
+    GAP_STATUSES,
     Citation,
     Company,
     Document,
     ExtractedSpan,
+    ExtractionGap,
+    ExtractionRun,
     Filing,
     FinancialFact,
     SourceDocument,
@@ -136,6 +139,47 @@ class Repository:
             )
             return session.scalars(stmt).first()
 
+    # --- ExtractionRun / ExtractionGap ---
+
+    def create_extraction_run(
+        self, *, company_id: int, extractor_version: str
+    ) -> ExtractionRun:
+        with self._session_ctx() as session:
+            run = ExtractionRun(company_id=company_id, extractor_version=extractor_version)
+            session.add(run)
+            session.flush()
+            return run
+
+    def finish_extraction_run(self, run_id: int) -> None:
+        from datetime import datetime, timezone
+        from sqlalchemy import update
+        with self._session_ctx() as session:
+            session.execute(
+                update(ExtractionRun)
+                .where(ExtractionRun.id == run_id)
+                .values(finished_at=datetime.now(timezone.utc))
+            )
+
+    def save_extraction_gaps(self, gaps: list[ExtractionGap]) -> list[ExtractionGap]:
+        if not gaps:
+            return []
+        for g in gaps:
+            if g.status not in GAP_STATUSES:
+                raise ValueError(f"Unknown gap status: {g.status}")
+        with self._session_ctx() as session:
+            session.add_all(gaps)
+            session.flush()
+            return gaps
+
+    def get_extraction_gaps(self, run_id: int) -> list[ExtractionGap]:
+        with self._session_ctx() as session:
+            stmt = (
+                select(ExtractionGap)
+                .where(ExtractionGap.run_id == run_id)
+                .order_by(ExtractionGap.id)
+            )
+            return list(session.scalars(stmt).all())
+
     # --- Filing ---
 
     def upsert_filing(self, filing: Filing) -> Filing:
@@ -235,6 +279,7 @@ class Repository:
                 stmt = insert(Document).values(
                     filing_id=doc.filing_id,
                     source_document_id=doc.source_document_id,
+                    run_id=doc.run_id,
                     section=doc.section,
                     title=doc.title,
                     text=doc.text,
@@ -245,6 +290,7 @@ class Repository:
                     index_elements=["filing_id", "section"],
                     set_=dict(
                         source_document_id=stmt.excluded.source_document_id,
+                        run_id=stmt.excluded.run_id,
                         title=stmt.excluded.title,
                         text=stmt.excluded.text,
                         text_sha256=stmt.excluded.text_sha256,
@@ -277,6 +323,7 @@ class Repository:
                 p_end = f.period_end or date(1970, 1, 1)
                 stmt = insert(FinancialFact).values(
                     company_id=f.company_id,
+                    run_id=f.run_id,
                     concept=f.concept,
                     xbrl_concept=f.xbrl_concept or f.concept,
                     accession_number=f.accession_number or "",
@@ -297,6 +344,7 @@ class Repository:
                         "fiscal_period", "accession_number",
                     ],
                     set_=dict(
+                        run_id=stmt.excluded.run_id,
                         context_ref=stmt.excluded.context_ref,
                         unit_ref=stmt.excluded.unit_ref,
                         label=stmt.excluded.label,
@@ -335,6 +383,7 @@ class Repository:
 
                 stmt = insert(ExtractedSpan).values(
                     company_id=s.company_id,
+                    run_id=s.run_id,
                     category=s.category,
                     label=s.label,
                     label_start_offset=s.label_start_offset,

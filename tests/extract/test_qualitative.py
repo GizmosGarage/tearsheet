@@ -74,13 +74,13 @@ class TestSemanticChunking:
         ])
 
         with patch("tearsheet.extract.qualitative._load_prompt", return_value="Test prompt"):
-            spans = extract_risk_factors(doc, llm=mock_llm)
+            result = extract_risk_factors(doc, llm=mock_llm)
 
         # Because we return the same quote, the grounding gate will find it at the exact
         # same global offset. Dedupe should catch it and return only 1 span.
-        assert len(spans) == 1
+        assert len(result.spans) == 1
 
-        span = spans[0]
+        span = result.spans[0]
         assert span.category == "risk_factor"
         assert len(span.citations) == 1
 
@@ -112,11 +112,13 @@ def test_extract_risk_factors():
 
     # Call orchestrator
     with patch("tearsheet.extract.qualitative._load_prompt", return_value="Test prompt"):
-        spans = extract_risk_factors(doc, llm=mock_llm)
+        result = extract_risk_factors(doc, llm=mock_llm)
 
-    # Verify only the grounded span is returned
-    assert len(spans) == 1
-    span = spans[0]
+    # Verify only the grounded span is returned; the hallucination surfaces as rejected
+    assert len(result.spans) == 1
+    assert len(result.rejected) == 1
+    assert result.rejected[0].exact_quote == "market volatility risks."
+    span = result.spans[0]
     assert span.category == "risk_factor"
     assert span.company_id == 10
 
@@ -163,11 +165,13 @@ def test_extract_business():
     )
 
     with patch("tearsheet.extract.qualitative._load_prompt", return_value="Prompt"):
-        spans = extract_business(doc, llm=mock_llm)
+        result = extract_business(doc, llm=mock_llm)
 
     # We passed 4 items, but 2 share the same quote ("sell cloud services.").
     # Global span dedup should reduce it to 3 spans.
+    spans = result.spans
     assert len(spans) == 3
+    assert result.rejected == []
 
     categories = [s.category for s in spans]
     assert "revenue_stream" in categories
@@ -192,8 +196,9 @@ def test_extract_mda():
     )
 
     with patch("tearsheet.extract.qualitative._load_prompt", return_value="Prompt"):
-        spans = extract_management_discussion(doc, llm=mock_llm)
+        result = extract_management_discussion(doc, llm=mock_llm)
 
+    spans = result.spans
     assert len(spans) == 3
     categories = [s.category for s in spans]
     assert "liquidity" in categories

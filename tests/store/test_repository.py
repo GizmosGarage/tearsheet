@@ -85,6 +85,34 @@ def test_upsert_source_documents():
     }
 
 
+def test_extraction_run_and_gap_lifecycle():
+    from tearsheet.store.models import ExtractionGap
+
+    repo = Repository()
+    c = repo.upsert_company(ticker="RUNCO", cik="0011")
+    f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="011"))
+
+    run = repo.create_extraction_run(company_id=c.id, extractor_version="abc1234")
+    assert run.id is not None
+    assert run.finished_at is None
+
+    saved = repo.save_extraction_gaps([
+        ExtractionGap(run_id=run.id, filing_id=f.id, target="Item 7",
+                      status="not_found", detail="missing"),
+    ])
+    assert saved[0].id is not None
+
+    with pytest.raises(ValueError, match="Unknown gap status"):
+        repo.save_extraction_gaps([
+            ExtractionGap(run_id=run.id, filing_id=f.id, target="x", status="bogus")
+        ])
+
+    repo.finish_extraction_run(run.id)
+    gaps = repo.get_extraction_gaps(run.id)
+    assert len(gaps) == 1
+    assert gaps[0].status == "not_found"
+
+
 def test_get_source_documents_empty():
     repo = Repository()
     c = repo.upsert_company(ticker="EMPTY", cik="0009")

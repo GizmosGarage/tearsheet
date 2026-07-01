@@ -64,11 +64,14 @@ def test_pipeline_run_for_ticker(mock_extract_fin, mock_fetch_fin, mock_llm_cls,
     }
     mock_filings_client.return_value = mock_fc
 
-    # Mock LLM Client
+    # Mock LLM Client (one genuine quote, one hallucination the gate must reject)
     from tearsheet.extract.schemas import RiskList, RiskFactor, BusinessProfile, MDAnalysis, GroundedItem
     def mock_complete(system_prompt, user_prompt, response_model):
         if response_model == RiskList:
-            return RiskList(risks=[RiskFactor(exact_quote="We might run out of chips.")])
+            return RiskList(risks=[
+                RiskFactor(exact_quote="We might run out of chips."),
+                RiskFactor(exact_quote="Entirely hallucinated risk text."),
+            ])
         elif response_model == BusinessProfile:
             return BusinessProfile(revenue_streams=[GroundedItem(exact_quote="sell phones.")])
         elif response_model == MDAnalysis:
@@ -95,13 +98,32 @@ def test_pipeline_run_for_ticker(mock_extract_fin, mock_fetch_fin, mock_llm_cls,
         
         assert result["ticker"] == "AAPL"
         assert result["cik"] == "0000320193"
-        # Item 7 is missing, so it will log an error and return completed_with_errors
+        assert result["run_id"] is not None
         assert result["status"] == "completed_with_errors"
-        assert len(result["errors"]) == 1
-        assert "Section 7 not found" in result["errors"][0]
-        
+
+        # Typed gaps: Item 7 missing (1), hallucinated span rejected (1),
+        # 11 of 12 sought concepts absent (only NetIncomeLoss was extracted).
+        assert result["gaps_by_status"] == {"not_found": 12, "rejected_by_gate": 1}
+        assert result["gaps_count"] == 13
+        assert len(result["errors"]) == 13
+        assert any("Item 7" in e and "not_found" in e for e in result["errors"])
+
+        # Gap rows are queryable records, not log lines
+        gaps = Repository().get_extraction_gaps(result["run_id"])
+        assert len(gaps) == 13
+        rejected = [g for g in gaps if g.status == "rejected_by_gate"]
+        assert len(rejected) == 1
+        assert rejected[0].detail == "Entirely hallucinated risk text."
+        assert rejected[0].target == "Item 1A span"
+        item7 = next(g for g in gaps if g.target == "Item 7")
+        assert item7.status == "not_found"
+
         assert result["financial_facts_count"] == 1
         assert result["extracted_spans_count"] == 2
+
+        # Every saved artifact carries the run's id
+        assert all(f.run_id == result["run_id"] for f in result["financial_facts"])
+        assert all(s.run_id == result["run_id"] for s in result["extracted_spans"])
 
         spans = result["extracted_spans"]
         assert len(spans) == 2
@@ -118,6 +140,7 @@ def test_pipeline_run_for_ticker(mock_extract_fin, mock_fetch_fin, mock_llm_cls,
         assert risk_doc.source_document_id is not None
         assert risk_doc.text_sha256 is not None
         assert risk_doc.extraction_method == "sectioner"
+        assert risk_doc.run_id == result["run_id"]
 
         # Check business profile span
         biz = next(s for s in spans if s.category == "revenue_stream")
@@ -193,8 +216,9 @@ def test_pipeline_financials_failure_does_not_abort_qualitative(mock_fetch_fin, 
         pipeline = ExecutionPipeline()
         result = pipeline.run_for_ticker("AAPL")
         
-        # Financials failed, 1 missing, 7 missing -> 3 errors total
+        # Financials failed, Item 1 missing, Item 7 missing -> 3 typed gaps
         assert result["status"] == "completed_with_errors"
+        assert result["gaps_by_status"] == {"failed": 1, "not_found": 2}
         assert len(result["errors"]) == 3
         
         assert result["financial_facts_count"] == 0
@@ -237,15 +261,16 @@ def test_uncited_fact_discarded_before_save(
     mock_extract_fin.return_value = []
     
     from tearsheet.store.models import ExtractedSpan, Citation
+    from tearsheet.extract.qualitative import SectionExtraction
     valid_span = ExtractedSpan(company_id=1, category="risk_factor", label="Valid")
     valid_span.citations = [Citation(document_id=1, quote="valid", start_offset=0, end_offset=5)]
 
     uncited_span = ExtractedSpan(company_id=1, category="risk_factor", label="Uncited")
     uncited_span.citations = []
 
-    mock_risk.return_value = [valid_span, uncited_span]
-    mock_business.return_value = []
-    mock_mda.return_value = []
+    mock_risk.return_value = SectionExtraction(spans=[valid_span, uncited_span])
+    mock_business.return_value = SectionExtraction()
+    mock_mda.return_value = SectionExtraction()
 
     with patch("tearsheet.config.RAW_FILINGS_DIR", tmp_path / "raw"), \
          patch("tearsheet.config.SEC_TICKER_MAP_URL", "http://mock"):
