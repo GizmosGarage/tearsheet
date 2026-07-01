@@ -1,4 +1,4 @@
-"""ORM models: Company, Filing, Document, FinancialFact, QualitativeFact, Citation."""
+"""ORM models: Company, Filing, SourceDocument, Document, FinancialFact, QualitativeFact, Citation."""
 
 from __future__ import annotations
 
@@ -39,6 +39,26 @@ class Filing(Base):
 
     company: Mapped[Company] = relationship(back_populates="filings")
     documents: Mapped[list[Document]] = relationship(back_populates="filing")
+    source_documents: Mapped[list[SourceDocument]] = relationship(back_populates="filing")
+
+
+class SourceDocument(Base):
+    """An archived raw file from an accession; the provenance anchor for all extracted content."""
+
+    __tablename__ = "source_documents"
+    __table_args__ = (UniqueConstraint("filing_id", "filename", name="uix_source_document_filing_filename"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    filing_id: Mapped[int] = mapped_column(ForeignKey("filings.id"), index=True)
+    filename: Mapped[str] = mapped_column(String(256))
+    sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    doc_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    byte_size: Mapped[int] = mapped_column(Integer)
+    edgar_url: Mapped[str] = mapped_column(Text)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    filing: Mapped[Filing] = relationship(back_populates="source_documents")
 
 
 class Document(Base):

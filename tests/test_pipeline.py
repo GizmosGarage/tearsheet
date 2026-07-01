@@ -59,8 +59,11 @@ def test_pipeline_run_for_ticker(mock_extract_fin, mock_fetch_fin, mock_llm_cls,
     </body></html>"""
     mock_response.content = html_content
     mock_fc.get.return_value = mock_response
+    mock_fc.get_json.return_value = {
+        "directory": {"item": [{"name": "aapl-20230930.htm", "type": "text.htm"}]}
+    }
     mock_filings_client.return_value = mock_fc
-    
+
     # Mock LLM Client
     from tearsheet.extract.schemas import RiskList, RiskFactor, BusinessProfile, MDAnalysis, GroundedItem
     def mock_complete(system_prompt, user_prompt, response_model):
@@ -156,8 +159,11 @@ def test_pipeline_financials_failure_does_not_abort_qualitative(mock_fetch_fin, 
     </body></html>"""
     mock_response.content = html_content
     mock_fc.get.return_value = mock_response
+    mock_fc.get_json.return_value = {
+        "directory": {"item": [{"name": "aapl-20230930.htm", "type": "text.htm"}]}
+    }
     mock_filings_client.return_value = mock_fc
-    
+
     # Mock LLM Client
     from tearsheet.extract.schemas import RiskList, RiskFactor, BusinessProfile, MDAnalysis
     def mock_complete(system_prompt, user_prompt, response_model):
@@ -218,6 +224,9 @@ def test_uncited_fact_discarded_before_save(
     mock_response = MagicMock()
     mock_response.content = b"<html><body><p>Item 1A. Risk Factors</p></body></html>"
     mock_fc.get.return_value = mock_response
+    mock_fc.get_json.return_value = {
+        "directory": {"item": [{"name": "aapl-20230930.htm", "type": "text.htm"}]}
+    }
     mock_filings_client.return_value = mock_fc
     
     mock_fetch_fin.return_value = {"facts": {}}

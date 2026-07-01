@@ -17,6 +17,7 @@ from tearsheet.store.models import (
     Filing,
     FinancialFact,
     QualitativeFact,
+    SourceDocument,
 )
 
 
@@ -156,6 +157,54 @@ class Repository:
                 .where(Filing.id == f_id)
                 .options(selectinload(Filing.company))
             )
+
+    # --- SourceDocument ---
+
+    def upsert_source_documents(
+        self, source_documents: list[SourceDocument]
+    ) -> list[SourceDocument]:
+        """Insert or refresh archived-file records, keyed by (filing_id, filename)."""
+        if not source_documents:
+            return []
+
+        from sqlalchemy.dialects.sqlite import insert
+
+        doc_ids = []
+        with self._session_ctx() as session:
+            for sd in source_documents:
+                stmt = insert(SourceDocument).values(
+                    filing_id=sd.filing_id,
+                    filename=sd.filename,
+                    sequence=sd.sequence,
+                    doc_type=sd.doc_type,
+                    sha256=sd.sha256,
+                    byte_size=sd.byte_size,
+                    edgar_url=sd.edgar_url,
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["filing_id", "filename"],
+                    set_=dict(
+                        sequence=stmt.excluded.sequence,
+                        doc_type=stmt.excluded.doc_type,
+                        sha256=stmt.excluded.sha256,
+                        byte_size=stmt.excluded.byte_size,
+                        edgar_url=stmt.excluded.edgar_url,
+                    ),
+                ).returning(SourceDocument.id)
+                doc_ids.append(session.scalar(stmt))
+
+            return list(session.scalars(
+                select(SourceDocument).where(SourceDocument.id.in_(doc_ids))
+            ).all())
+
+    def get_source_documents(self, filing_id: int) -> list[SourceDocument]:
+        with self._session_ctx() as session:
+            stmt = (
+                select(SourceDocument)
+                .where(SourceDocument.filing_id == filing_id)
+                .order_by(SourceDocument.filename)
+            )
+            return list(session.scalars(stmt).all())
 
     # --- Document ---
 

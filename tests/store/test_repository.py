@@ -15,7 +15,7 @@ def mock_db_url():
         db._SessionLocal = None
 
 from tearsheet.store.repository import Repository
-from tearsheet.store.models import Company, Filing, Document, FinancialFact, QualitativeFact, Citation
+from tearsheet.store.models import Company, Filing, Document, FinancialFact, QualitativeFact, Citation, SourceDocument
 
 def test_upsert_company():
     repo = Repository()
@@ -45,6 +45,52 @@ def test_upsert_filing():
     saved_f2 = repo.upsert_filing(f2)
     assert saved_f2.id == saved_f1.id
     assert saved_f2.filed_date == date(2023, 1, 2)
+
+def test_upsert_source_documents():
+    repo = Repository()
+    c = repo.upsert_company(ticker="AAPL", cik="0000320193")
+    f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="001"))
+
+    docs = [
+        SourceDocument(
+            filing_id=f.id, filename="a.htm", doc_type="text.htm",
+            sha256="ab" * 32, byte_size=10, edgar_url="http://sec/a.htm"
+        ),
+        SourceDocument(
+            filing_id=f.id, filename="ex21.htm", doc_type="EX-21",
+            sha256="cd" * 32, byte_size=20, edgar_url="http://sec/ex21.htm"
+        ),
+    ]
+    saved = repo.upsert_source_documents(docs)
+    assert len(saved) == 2
+    assert all(sd.id is not None for sd in saved)
+
+    # Re-acquisition with a changed hash updates in place, keyed by (filing_id, filename)
+    updated = repo.upsert_source_documents([
+        SourceDocument(
+            filing_id=f.id, filename="a.htm", doc_type="text.htm",
+            sha256="ef" * 32, byte_size=12, edgar_url="http://sec/a.htm"
+        )
+    ])
+    original_a = next(sd for sd in saved if sd.filename == "a.htm")
+    assert updated[0].id == original_a.id
+    assert updated[0].sha256 == "ef" * 32
+    assert updated[0].byte_size == 12
+
+    stored = repo.get_source_documents(f.id)
+    assert len(stored) == 2
+    assert {sd.filename: sd.sha256 for sd in stored} == {
+        "a.htm": "ef" * 32,
+        "ex21.htm": "cd" * 32,
+    }
+
+
+def test_get_source_documents_empty():
+    repo = Repository()
+    c = repo.upsert_company(ticker="EMPTY", cik="0009")
+    f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="009"))
+    assert repo.get_source_documents(f.id) == []
+
 
 def test_save_documents():
     repo = Repository()

@@ -5,13 +5,13 @@ from __future__ import annotations
 import logging
 from tearsheet.edgar.tickers import resolve_ticker_to_cik
 from tearsheet.edgar.submissions import get_filing_history
-from tearsheet.edgar.filings import locate_filing, download_filing_documents
+from tearsheet.edgar.filings import locate_filing, acquire_filing
 from tearsheet.edgar.xbrl import fetch_companyfacts
 from tearsheet.parse.documents import build_documents
 from tearsheet.extract.qualitative import extract_risk_factors, extract_business, extract_management_discussion
 from tearsheet.extract.financials import extract_financial_facts
 from tearsheet.store.repository import Repository
-from tearsheet.store.models import Filing, QualitativeFact, FinancialFact
+from tearsheet.store.models import Filing, QualitativeFact, FinancialFact, SourceDocument
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +59,27 @@ class ExecutionPipeline:
             logger.error(msg)
             errors.append(msg)
             
-        logger.info(f"Downloading documents for {accession_number}")
-        raw_html_path = download_filing_documents(cik, accession_number)
+        logger.info(f"Archiving accession {accession_number}")
+        stored_sources = self.repo.get_source_documents(filing.id)
+        known_hashes = {sd.filename: sd.sha256 for sd in stored_sources}
+        acquisition = acquire_filing(cik, accession_number, known_hashes=known_hashes)
+
+        source_docs = [
+            SourceDocument(
+                filing_id=filing.id,
+                filename=d["filename"],
+                sequence=d["sequence"],
+                doc_type=d["doc_type"],
+                sha256=d["sha256"],
+                byte_size=d["byte_size"],
+                edgar_url=d["edgar_url"],
+            )
+            for d in acquisition["documents"]
+        ]
+        saved_sources = self.repo.upsert_source_documents(source_docs)
+        logger.info(f"Archived {len(saved_sources)} source documents for {accession_number}")
+
+        raw_html_path = acquisition["primary_path"]
         
         logger.info(f"Parsing sections from {raw_html_path}")
         documents = build_documents(filing.id, raw_html_path)
