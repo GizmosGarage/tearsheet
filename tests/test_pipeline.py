@@ -114,6 +114,12 @@ def test_pipeline_run_for_ticker(mock_extract_fin, mock_fetch_fin, mock_llm_cls,
         assert risk.citations[0].quote == "We might run out of chips."
         assert risk.citations[0].document.section == "1A"
 
+        # Custody chain: parsed sections trace to the archived primary document
+        risk_doc = risk.citations[0].document
+        assert risk_doc.source_document_id is not None
+        assert risk_doc.text_sha256 is not None
+        assert risk_doc.extraction_method == "sectioner"
+
         # Check business profile
         biz = next(f for f in facts if f.category == "revenue_stream")
         assert biz.summary == "Phones"

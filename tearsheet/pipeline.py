@@ -80,9 +80,15 @@ class ExecutionPipeline:
         logger.info(f"Archived {len(saved_sources)} source documents for {accession_number}")
 
         raw_html_path = acquisition["primary_path"]
-        
+        primary_source_id = next(
+            sd.id for sd in saved_sources
+            if sd.filename == acquisition["primary_document"]
+        )
+
         logger.info(f"Parsing sections from {raw_html_path}")
-        documents = build_documents(filing.id, raw_html_path)
+        documents = build_documents(
+            filing.id, raw_html_path, source_document_id=primary_source_id
+        )
         
         logger.info("Saving document sections to repository")
         saved_docs = self.repo.save_documents(documents)

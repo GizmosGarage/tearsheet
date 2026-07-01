@@ -67,12 +67,18 @@ class Document(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     filing_id: Mapped[int] = mapped_column(ForeignKey("filings.id"), index=True)
+    source_document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("source_documents.id"), index=True, nullable=True
+    )
     section: Mapped[str] = mapped_column(String(32))
     title: Mapped[str | None] = mapped_column(String(256), nullable=True)
     text: Mapped[str] = mapped_column(Text)
+    text_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    extraction_method: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     filing: Mapped[Filing] = relationship(back_populates="documents")
+    source_document: Mapped[SourceDocument | None] = relationship()
     citations: Mapped[list[Citation]] = relationship(back_populates="document")
 
 

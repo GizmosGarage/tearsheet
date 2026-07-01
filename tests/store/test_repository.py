@@ -105,6 +105,53 @@ def test_save_documents():
     assert len(saved_docs) == 2
     assert saved_docs[0].id is not None
     
+def test_save_documents_computes_missing_text_hash():
+    import hashlib
+    repo = Repository()
+    c = repo.upsert_company(ticker="HASHCO", cik="0007")
+    f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="007"))
+
+    saved = repo.save_documents([Document(filing_id=f.id, section="1A", text="some text")])
+    assert saved[0].text_sha256 == hashlib.sha256(b"some text").hexdigest()
+
+
+def test_save_documents_rejects_corrupted_hash():
+    repo = Repository()
+    c = repo.upsert_company(ticker="BADHASH", cik="0008")
+    f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="008"))
+
+    doc = Document(
+        filing_id=f.id, section="1A", text="some text",
+        text_sha256="0" * 64, extraction_method="sectioner"
+    )
+    with pytest.raises(ValueError, match="Custody violation"):
+        repo.save_documents([doc])
+
+
+def test_save_documents_persists_custody_fields():
+    import hashlib
+    repo = Repository()
+    c = repo.upsert_company(ticker="CUSTODY", cik="0010")
+    f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="010"))
+    sd = repo.upsert_source_documents([
+        SourceDocument(
+            filing_id=f.id, filename="a.htm", sha256="ab" * 32,
+            byte_size=10, edgar_url="http://sec/a.htm"
+        )
+    ])[0]
+
+    text = "verbatim section text"
+    doc = Document(
+        filing_id=f.id, source_document_id=sd.id, section="1A", text=text,
+        text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        extraction_method="sectioner",
+    )
+    saved = repo.save_documents([doc])[0]
+    assert saved.source_document_id == sd.id
+    assert saved.extraction_method == "sectioner"
+    assert saved.text_sha256 == hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def test_save_documents_eager_loads_filing():
     repo = Repository()
     c = repo.upsert_company(ticker="MSFTX", cik="0003")

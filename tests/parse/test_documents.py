@@ -1,3 +1,4 @@
+import hashlib
 import pytest
 from pathlib import Path
 from tearsheet.parse.documents import build_documents
@@ -35,3 +36,22 @@ def test_build_documents(tmp_path):
 
     assert documents[2].section == "1B"
     assert documents[3].section == "2"
+
+
+def test_build_documents_stamps_custody_chain(tmp_path):
+    html_file = tmp_path / "filing.html"
+    html = """<html><body>
+        <p>Item 1. Business</p>
+        <p>We do business.</p>
+        <p>Item 1A. Risk Factors</p>
+        <p>Risks.</p>
+        </body></html>"""
+    html_file.write_text(html, encoding="utf-8")
+
+    documents = build_documents(1, html_file, source_document_id=42)
+
+    assert len(documents) == 2
+    for doc in documents:
+        assert doc.source_document_id == 42
+        assert doc.extraction_method == "sectioner"
+        assert doc.text_sha256 == hashlib.sha256(doc.text.encode("utf-8")).hexdigest()

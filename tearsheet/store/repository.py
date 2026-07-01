@@ -211,22 +211,38 @@ class Repository:
     def save_documents(self, documents: list[Document]) -> list[Document]:
         if not documents:
             return []
-            
+
+        import hashlib
         from sqlalchemy.dialects.sqlite import insert
         from sqlalchemy.orm import selectinload
-        
+
         doc_ids = []
         with self._session_ctx() as session:
             for doc in documents:
+                computed = hashlib.sha256(doc.text.encode("utf-8")).hexdigest()
+                if doc.text_sha256 is not None and doc.text_sha256 != computed:
+                    raise ValueError(
+                        f"Custody violation: text hash mismatch for section {doc.section} "
+                        f"(stamped {doc.text_sha256}, computed {computed})"
+                    )
                 stmt = insert(Document).values(
                     filing_id=doc.filing_id,
+                    source_document_id=doc.source_document_id,
                     section=doc.section,
                     title=doc.title,
-                    text=doc.text
+                    text=doc.text,
+                    text_sha256=computed,
+                    extraction_method=doc.extraction_method,
                 )
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["filing_id", "section"],
-                    set_=dict(title=stmt.excluded.title, text=stmt.excluded.text)
+                    set_=dict(
+                        source_document_id=stmt.excluded.source_document_id,
+                        title=stmt.excluded.title,
+                        text=stmt.excluded.text,
+                        text_sha256=stmt.excluded.text_sha256,
+                        extraction_method=stmt.excluded.extraction_method,
+                    )
                 ).returning(Document.id)
                 doc_ids.append(session.scalar(stmt))
                 
