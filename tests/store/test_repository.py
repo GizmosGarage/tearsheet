@@ -15,7 +15,7 @@ def mock_db_url():
         db._SessionLocal = None
 
 from tearsheet.store.repository import Repository
-from tearsheet.store.models import Company, Filing, Document, FinancialFact, QualitativeFact, Citation, SourceDocument
+from tearsheet.store.models import Company, Filing, Document, ExtractedSpan, FinancialFact, Citation, SourceDocument
 
 def test_upsert_company():
     repo = Repository()
@@ -194,54 +194,60 @@ def test_save_financial_facts_null_dedupe():
     assert saved2[0].id == saved1[0].id
     assert saved2[0].value == 200.0
     
-def test_save_qualitative_facts():
+def test_save_extracted_spans():
     repo = Repository()
     c = repo.upsert_company(ticker="AAPL", cik="0000320193")
     f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="001"))
-    doc = repo.save_documents([Document(filing_id=f.id, section="1A", text="text1")])[0]
-    
-    fact = QualitativeFact(company_id=c.id, category="Risk", summary="Bad")
+    doc = repo.save_documents([Document(filing_id=f.id, section="1A", text="Bad things happen")])[0]
+
+    span = ExtractedSpan(
+        company_id=c.id, category="risk_factor",
+        label="Bad", label_start_offset=0, label_end_offset=3,
+    )
     cit = Citation(document_id=doc.id, quote="Bad things", start_offset=0, end_offset=10)
-    fact.citations.append(cit)
-    
-    saved = repo.save_qualitative_facts([fact])
+    span.citations.append(cit)
+
+    saved = repo.save_extracted_spans([span])
     assert len(saved) == 1
     assert saved[0].id is not None
+    assert saved[0].label == "Bad"
+    assert saved[0].label_start_offset == 0
+    assert saved[0].label_end_offset == 3
     assert len(saved[0].citations) == 1
-    
+
     # Verify deep eager loading (no DetachedInstanceError outside session)
     assert saved[0].company.ticker == "AAPL"
     assert saved[0].citations[0].document.section == "1A"
 
-def test_get_qualitative_facts():
+def test_get_extracted_spans():
     repo = Repository()
-    c = repo.upsert_company(ticker="GETQFACTS", cik="888")
+    c = repo.upsert_company(ticker="GETSPANS", cik="888")
     f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="001"))
     doc = repo.save_documents([Document(filing_id=f.id, section="1A", text="text1")])[0]
-    
-    fact1 = QualitativeFact(company_id=c.id, category="risk_factor", summary="Risk 1")
+
+    span1 = ExtractedSpan(company_id=c.id, category="risk_factor", label="Risk 1")
     cit1 = Citation(document_id=doc.id, quote="Bad things 1", start_offset=0, end_offset=10)
-    fact1.citations.append(cit1)
-    
-    fact2 = QualitativeFact(company_id=c.id, category="competitor", summary="Comp 1")
+    span1.citations.append(cit1)
+
+    span2 = ExtractedSpan(company_id=c.id, category="competitor")
     cit2 = Citation(document_id=doc.id, quote="Bad things 2", start_offset=11, end_offset=20)
-    fact2.citations.append(cit2)
-    
-    repo.save_qualitative_facts([fact1, fact2])
-    
+    span2.citations.append(cit2)
+
+    repo.save_extracted_spans([span1, span2])
+
     # Read without session scope (testing eager load)
-    all_facts = repo.get_qualitative_facts(company_id=c.id)
-    assert len(all_facts) == 2
-    assert all_facts[0].category == "competitor"  # alphabetical sort by category
-    assert all_facts[1].category == "risk_factor"
-    
+    all_spans = repo.get_extracted_spans(company_id=c.id)
+    assert len(all_spans) == 2
+    assert all_spans[0].category == "competitor"  # alphabetical sort by category
+    assert all_spans[1].category == "risk_factor"
+
     # Test relationship eager load outside session
-    assert all_facts[0].citations[0].document.section == "1A"
-    
+    assert all_spans[0].citations[0].document.section == "1A"
+
     # Test filter
-    filtered = repo.get_qualitative_facts(company_id=c.id, category="risk_factor")
+    filtered = repo.get_extracted_spans(company_id=c.id, category="risk_factor")
     assert len(filtered) == 1
-    assert filtered[0].summary == "Risk 1"
+    assert filtered[0].label == "Risk 1"
 
 def test_get_financial_facts():
     repo = Repository()
@@ -301,32 +307,33 @@ def test_get_financial_series():
     assert series[0] == (date(2021, 12, 31), 100.0)
     assert series[1] == (date(2023, 12, 31), 300.0)
 
-def test_rerun_does_not_create_uncited_fact():
+def test_rerun_does_not_create_duplicate_span():
     repo = Repository()
     c = repo.upsert_company(ticker="RERUN", cik="123")
     f = repo.upsert_filing(Filing(company_id=c.id, form_type="10-K", accession_number="001"))
     doc = repo.save_documents([Document(filing_id=f.id, section="1A", text="text1")])[0]
-    
-    # Save first fact
-    fact1 = QualitativeFact(company_id=c.id, category="risk_factor", summary="Risk 1")
+
+    # Save first span
+    span1 = ExtractedSpan(company_id=c.id, category="risk_factor", label="Risk 1")
     cit1 = Citation(document_id=doc.id, quote="span", start_offset=0, end_offset=10)
-    fact1.citations.append(cit1)
-    
-    saved1 = repo.save_qualitative_facts([fact1])
+    span1.citations.append(cit1)
+
+    saved1 = repo.save_extracted_spans([span1])
     assert len(saved1) == 1
-    
-    # Save second fact with different summary but SAME citation span
-    fact2 = QualitativeFact(company_id=c.id, category="risk_factor", summary="Risk 2")
+
+    # Save second span with a different label but the SAME citation span (re-run)
+    span2 = ExtractedSpan(company_id=c.id, category="risk_factor", label="Risk 2")
     cit2 = Citation(document_id=doc.id, quote="span", start_offset=0, end_offset=10)
-    fact2.citations.append(cit2)
-    
-    saved2 = repo.save_qualitative_facts([fact2])
-    # The citation insert for fact2 will fail because the span is already owned by fact1.
-    # Therefore fact2 should not be surfaced.
-    
-    all_facts = repo.get_qualitative_facts(company_id=c.id)
-    for fact in all_facts:
-        assert len(fact.citations) > 0
-    
-    assert len(all_facts) == 1
-    assert all_facts[0].summary == "Risk 1"
+    span2.citations.append(cit2)
+
+    saved2 = repo.save_extracted_spans([span2])
+    # The citation insert for span2 collides with span1's citation, so span2
+    # is a duplicate and must not be kept.
+    assert len(saved2) == 0
+
+    all_spans = repo.get_extracted_spans(company_id=c.id)
+    for span in all_spans:
+        assert len(span.citations) > 0
+
+    assert len(all_spans) == 1
+    assert all_spans[0].label == "Risk 1"

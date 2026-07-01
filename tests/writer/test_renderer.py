@@ -19,12 +19,12 @@ def _make_company(**kwargs):
     return company
 
 
-def _make_qual_fact(category: str, summary: str, citations=None):
-    fact = MagicMock()
-    fact.category = category
-    fact.summary = summary
-    fact.citations = citations or []
-    return fact
+def _make_span(category: str, label: str | None, citations=None):
+    span = MagicMock()
+    span.category = category
+    span.label = label
+    span.citations = citations or []
+    return span
 
 
 def _make_citation(document_id: int, quote: str, start: int, end: int, section: str = "7"):
@@ -49,7 +49,7 @@ class TestRenderDossierSections:
         assert "## 2. Competitive Position" in out
         assert "## 3. Financial Shape" in out
         assert "## 4. Risks / Bear Case" in out
-        assert "Total facts extracted:" in out
+        assert "Total spans extracted:" in out
 
     def test_competitive_position_subsections(self):
         # - [ ] "Competitors" and "Moats / Durable Advantages" under Section 2
@@ -59,45 +59,54 @@ class TestRenderDossierSections:
 
     def test_mda_categories_under_section_3(self):
         # - [ ] liquidity, kpi, forward_looking_sentiment render under Financial Shape
-        f = _make_qual_fact("liquidity", "Very liquid")
-        f.citations.append(_make_citation(1, "quote", 1, 2))
-        out = render_dossier(_make_company(), None, [f], [])
+        s = _make_span("liquidity", "Liquidity and Capital Resources")
+        s.citations.append(_make_citation(1, "quote", 1, 2))
+        out = render_dossier(_make_company(), None, [s], [])
         assert "## 3. Financial Shape" in out
         assert "### Management's Discussion & Analysis" in out
-        assert "- **Very liquid**" in out
+        assert "- **Liquidity and Capital Resources**" in out
 
 
 class TestCitationFormatting:
     """§3.1 citation mandate."""
 
     def test_every_claim_followed_by_citation_line(self):
-        # - [ ] Quote, doc#, offsets, and section appear in output
-        fact = _make_qual_fact("risk_factor", "Risk A")
+        # - [ ] Label, quote, doc#, offsets, and section appear in output
+        span = _make_span("risk_factor", "Risk A")
         cit = _make_citation(99, "quote text", 100, 200, "1A")
-        fact.citations.append(cit)
-        
-        out = render_dossier(_make_company(), None, [fact], [])
+        span.citations.append(cit)
+
+        out = render_dossier(_make_company(), None, [span], [])
         assert "- **Risk A**" in out
         assert '> "quote text"' in out
         assert "> — Item 1A · doc#99 · chars 100–200" in out
 
+    def test_unlabelled_span_renders_quote_as_bullet(self):
+        span = _make_span("risk_factor", None)
+        cit = _make_citation(99, "verbatim only", 5, 18, "1A")
+        span.citations.append(cit)
+
+        out = render_dossier(_make_company(), None, [span], [])
+        assert '- > "verbatim only"' in out
+        assert "> — Item 1A · doc#99 · chars 5–18" in out
+
     def test_multiple_citations_render_separate_blockquotes(self):
-        fact = _make_qual_fact("risk_factor", "Risk B")
+        span = _make_span("risk_factor", "Risk B")
         cit1 = _make_citation(1, "quote 1", 10, 20, "1")
         cit2 = _make_citation(2, "quote 2", 30, 40, "1A")
-        fact.citations.extend([cit1, cit2])
-        
-        out = render_dossier(_make_company(), None, [fact], [])
+        span.citations.extend([cit1, cit2])
+
+        out = render_dossier(_make_company(), None, [span], [])
         assert '> "quote 1"' in out
         assert "> — Item 1 · doc#1 · chars 10–20" in out
         assert '> "quote 2"' in out
         assert "> — Item 1A · doc#2 · chars 30–40" in out
 
-    def test_uncited_fact_triggers_canary_marker(self):
-        # - [ ] Citation-less fact → [UNCITED — investigate], summary not bare
-        fact = _make_qual_fact("risk_factor", "Risk C")
+    def test_uncited_span_triggers_canary_marker(self):
+        # - [ ] Citation-less span → [UNCITED — investigate], label not bare
+        span = _make_span("risk_factor", "Risk C")
         # No citations
-        out = render_dossier(_make_company(), None, [fact], [])
+        out = render_dossier(_make_company(), None, [span], [])
         assert "- **Risk C**" in out
         assert "> [UNCITED — investigate]" in out
 

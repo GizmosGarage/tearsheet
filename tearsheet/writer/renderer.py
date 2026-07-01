@@ -1,19 +1,30 @@
-"""Pure Markdown formatting — no DB, no math."""
+"""Pure Markdown formatting — no DB, no math, no authored prose.
+
+Every rendered string is either a verbatim source slice (labels, quotes) or
+fixed structural scaffolding (section headers, provenance lines).
+"""
 
 from __future__ import annotations
 
-from tearsheet.store.models import Company, Filing, QualitativeFact
+from tearsheet.store.models import Company, ExtractedSpan, Filing
 from tearsheet.writer.metrics import FinancialSummaryRow
 
 
-def _render_fact(fact: QualitativeFact) -> str:
-    lines = [f"- **{fact.summary}**"]
-    if not fact.citations:
-        lines.append("  > [UNCITED — investigate]")
+def _render_span(span: ExtractedSpan) -> str:
+    if span.label:
+        lines = [f"- **{span.label}**"]
+        quote_prefix = "  > "
     else:
-        for c in fact.citations:
+        lines = []
+        quote_prefix = "- > "
+
+    if not span.citations:
+        lines.append(f"{quote_prefix}[UNCITED — investigate]")
+    else:
+        for i, c in enumerate(span.citations):
             section = c.document.section if getattr(c, "document", None) else "?"
-            lines.append(f'  > "{c.quote}"')
+            prefix = quote_prefix if i == 0 and not span.label else "  > "
+            lines.append(f'{prefix}"{c.quote}"')
             lines.append(f"  > — Item {section} · doc#{c.document_id} · chars {c.start_offset}–{c.end_offset}")
     return "\n".join(lines)
 
@@ -58,68 +69,68 @@ def _render_financial_table(summary: list[FinancialSummaryRow]) -> str:
     footnote = "*Source: Extracted from SEC XBRL companyfacts.*"
     return "\n".join(rows) + "\n\n" + footnote
 
-def _render_section_3(facts: list[QualitativeFact], summary: list[FinancialSummaryRow]) -> str:
+def _render_section_3(spans: list[ExtractedSpan], summary: list[FinancialSummaryRow]) -> str:
     mda_cats = ["liquidity", "kpi", "forward_looking_sentiment"]
-    mda_facts = [f for f in facts if f.category in mda_cats]
-    
+    mda_spans = [s for s in spans if s.category in mda_cats]
+
     blocks = ["## 3. Financial Shape\n"]
     blocks.append(_render_financial_table(summary))
-    
-    if mda_facts:
+
+    if mda_spans:
         blocks.append("\n### Management's Discussion & Analysis")
-        for f in mda_facts:
-            blocks.append(_render_fact(f))
-            
+        for s in mda_spans:
+            blocks.append(_render_span(s))
+
     return "\n".join(blocks)
 
 def render_dossier(
     company: Company,
     filing: Filing | None,
-    qualitative_facts: list[QualitativeFact],
+    extracted_spans: list[ExtractedSpan],
     financial_summary: list[FinancialSummaryRow],
     *,
     errors: list[str] | None = None,
 ) -> str:
-    """Render a fully-cited Markdown dossier."""
-    facts_by_cat = {}
-    for fact in qualitative_facts:
-        facts_by_cat.setdefault(fact.category, []).append(fact)
+    """Render a fully-cited Markdown dossier of verbatim spans."""
+    spans_by_cat = {}
+    for span in extracted_spans:
+        spans_by_cat.setdefault(span.category, []).append(span)
 
     blocks = []
-    
+
     # Header
     filing_str = f" (Latest filing: {filing.filed_date} | {filing.accession_number})" if filing else ""
     blocks.append(f"# {company.name} ({company.ticker}){filing_str}\n")
     blocks.append(f"CIK: {company.cik}\n")
-    
+
     # Section 1
     blocks.append("## 1. Business in Plain English")
-    for f in facts_by_cat.get("revenue_stream", []):
-        blocks.append(_render_fact(f))
-        
+    for s in spans_by_cat.get("revenue_stream", []):
+        blocks.append(_render_span(s))
+
     # Section 2
     blocks.append("\n## 2. Competitive Position")
     blocks.append("### Competitors")
-    for f in facts_by_cat.get("competitor", []):
-        blocks.append(_render_fact(f))
+    for s in spans_by_cat.get("competitor", []):
+        blocks.append(_render_span(s))
     blocks.append("\n### Moats / Durable Advantages")
-    for f in facts_by_cat.get("competitive_moat", []):
-        blocks.append(_render_fact(f))
-        
+    for s in spans_by_cat.get("competitive_moat", []):
+        blocks.append(_render_span(s))
+
     # Section 3
-    blocks.append("\n" + _render_section_3(qualitative_facts, financial_summary))
-    
+    blocks.append("\n" + _render_section_3(extracted_spans, financial_summary))
+
     # Section 4
     blocks.append("\n## 4. Risks / Bear Case")
-    for f in facts_by_cat.get("risk_factor", []):
-        blocks.append(_render_fact(f))
-        
+    for s in spans_by_cat.get("risk_factor", []):
+        blocks.append(_render_span(s))
+
     # Footer
     blocks.append("\n---\n")
-    blocks.append(f"**Total facts extracted:** {len(qualitative_facts)}")
+    blocks.append(f"**Total spans extracted:** {len(extracted_spans)}")
     if errors:
         blocks.append("\n**Pipeline Errors:**")
         for e in errors:
             blocks.append(f"- {e}")
-            
+
     return "\n".join(blocks)

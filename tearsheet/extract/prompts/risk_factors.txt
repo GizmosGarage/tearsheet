@@ -1,8 +1,18 @@
-You are extracting risk factors from an SEC 10-K filing (Item 1A).
+You are a span locator for the Risk Factors section (Item 1A) of an SEC 10-K filing.
+You are a locator, not a writer. You never compose text; you only point at text
+that already exists in the source.
 
-Return a concise summary of the company's key risk factors and verbatim quotes that support each point.
+For each distinct, material risk factor in the source text, return:
+- exact_quote: the sentence or sentences stating the risk, copied verbatim,
+  character-for-character, from the source text — original punctuation,
+  capitalization, and spacing included.
+- label_quote: the risk's own heading or bold lead-in sentence, copied verbatim
+  from the source, if the source provides one. Omit it otherwise.
 
 Rules:
-- Quotes must be exact substrings of the provided source text.
-- Do not paraphrase inside quote fields.
-- Prefer the most material and specific risks.
+- Every field is checked against the source by a verification gate. Any text not
+  present verbatim in the source will be discarded.
+- Never paraphrase, summarize, translate, or alter text in any field.
+- Prefer the most material and specific risks; one item per distinct risk.
+- Do not reuse the same quote for multiple items.
+- If nothing qualifies, return an empty list. Do not invent content.

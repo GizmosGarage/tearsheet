@@ -1,4 +1,4 @@
-"""ORM models: Company, Filing, SourceDocument, Document, FinancialFact, QualitativeFact, Citation."""
+"""ORM models: Company, Filing, SourceDocument, Document, FinancialFact, ExtractedSpan, Citation."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class Company(Base):
 
     filings: Mapped[list[Filing]] = relationship(back_populates="company")
     financial_facts: Mapped[list[FinancialFact]] = relationship(back_populates="company")
-    qualitative_facts: Mapped[list[QualitativeFact]] = relationship(back_populates="company")
+    extracted_spans: Mapped[list[ExtractedSpan]] = relationship(back_populates="company")
 
 
 class Filing(Base):
@@ -98,18 +98,22 @@ class FinancialFact(Base):
     company: Mapped[Company] = relationship(back_populates="financial_facts")
 
 
-class QualitativeFact(Base):
-    __tablename__ = "qualitative_facts"
-    __table_args__ = (UniqueConstraint("company_id", "category", "summary", name="uix_qualitative_fact"),)
+class ExtractedSpan(Base):
+    """A verbatim span extracted from a filing. Never carries authored text:
+    ``label`` is always a source slice, located by its own offsets."""
+
+    __tablename__ = "extracted_spans"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
     category: Mapped[str] = mapped_column(String(64), index=True)
-    summary: Mapped[str] = mapped_column(Text)
+    label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    label_start_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    label_end_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    company: Mapped[Company] = relationship(back_populates="qualitative_facts")
-    citations: Mapped[list[Citation]] = relationship(back_populates="qualitative_fact")
+    company: Mapped[Company] = relationship(back_populates="extracted_spans")
+    citations: Mapped[list[Citation]] = relationship(back_populates="extracted_span")
 
 
 class Citation(Base):
@@ -117,8 +121,8 @@ class Citation(Base):
     __table_args__ = (UniqueConstraint("document_id", "start_offset", "end_offset", name="uix_citation_document_span"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    qualitative_fact_id: Mapped[int] = mapped_column(
-        ForeignKey("qualitative_facts.id"), index=True
+    extracted_span_id: Mapped[int] = mapped_column(
+        ForeignKey("extracted_spans.id"), index=True
     )
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), index=True)
     quote: Mapped[str] = mapped_column(Text)
@@ -126,5 +130,5 @@ class Citation(Base):
     end_offset: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    qualitative_fact: Mapped[QualitativeFact] = relationship(back_populates="citations")
+    extracted_span: Mapped[ExtractedSpan] = relationship(back_populates="citations")
     document: Mapped[Document] = relationship(back_populates="citations")

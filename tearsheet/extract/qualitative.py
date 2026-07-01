@@ -1,4 +1,9 @@
-"""LLM extraction: business / risk / management discussion."""
+"""LLM-located span extraction: business / risk / management discussion.
+
+The LLM is a locator, not a writer: it proposes quotes and labels, the
+grounding gate re-resolves them against the source, and only source slices
+are ever stored.
+"""
 
 from __future__ import annotations
 
@@ -6,23 +11,13 @@ from pathlib import Path
 
 from tearsheet.extract.llm_client import LLMClient
 from tearsheet.extract.schemas import BusinessProfile, MDAnalysis, RiskList
-from tearsheet.store.models import Document, QualitativeFact
+from tearsheet.store.models import Document, ExtractedSpan
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
 def _load_prompt(name: str) -> str:
     return (PROMPTS_DIR / name).read_text(encoding="utf-8")
-
-
-def extract_qualitative_facts(
-    company_id: int,
-    documents: list[Document],
-    *,
-    llm: LLMClient | None = None,
-) -> list[QualitativeFact]:
-    """Run LLM extraction tasks over parsed document sections."""
-    raise NotImplementedError
 
 
 from tearsheet.extract.grounding import verify_quotes
@@ -114,41 +109,48 @@ def _chunk_text(text: str, chunk_size: int = 40000, overlap: int = 4000) -> list
     return chunks
 
 
+def _span_to_extracted(company_id: int, category: str, span) -> ExtractedSpan:
+    """Build an ExtractedSpan + Citation from a grounded span. Source slices only."""
+    extracted = ExtractedSpan(
+        company_id=company_id,
+        category=category,
+        label=span.label,
+        label_start_offset=span.label_start_offset,
+        label_end_offset=span.label_end_offset,
+    )
+    extracted.citations = [
+        Citation(
+            document_id=span.document_id,
+            quote=span.quote,
+            start_offset=span.start_offset,
+            end_offset=span.end_offset,
+        )
+    ]
+    return extracted
+
+
 def extract_risk_factors(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> list[QualitativeFact]:
-    """Extract risk factors from Item 1A.
+) -> list[ExtractedSpan]:
+    """Extract risk factor spans from Item 1A.
 
-    Chunking (_chunk_text):
-    - [ ] Split into paragraphs on blank lines, preserving original characters.
-    - [ ] Greedily pack whole paragraphs up to `chunk_size`.
-    - [ ] Begin each next chunk with trailing paragraphs (~`overlap`) carried over from the previous chunk.
-    - [ ] Handle the oversized-single-paragraph edge case with a logged sentence-boundary fallback split.
-    - [ ] Guarantee: every chunk ≤ `chunk_size`; short docs yield exactly one chunk (back-compat).
-
-    Looping (extract_risk_factors):
-    - [ ] Keep the existing validity checks (`document.id`, `document.filing`, `company_id`).
-    - [ ] Chunk `document.text`; loop chunks sequentially calling `llm.complete_structured(..., user_prompt=chunk, response_model=RiskList)`.
-    - [ ] Aggregate all `parsed.risks` into one candidate list.
-    - [ ] Call `verify_quotes(document.text, candidates, document_id=document.id)` **once, against the full text** (global offsets — do not pass a chunk here).
-
-    Dedupe-by-span before fact creation:
-    - [ ] Add `dedupe_by_span(accepted)` keyed on `(start_offset, end_offset)`; one span → one fact (§3.3).
-    - [ ] Build `QualitativeFact` + single `Citation` per deduped span (unchanged construction logic).
+    Chunks the section, asks the LLM to locate quotes (and each risk's own
+    lead-in label), then verifies everything once against the full section
+    text so offsets are global. Deduplicates by span before construction.
     """
     if document.id is None:
         raise ValueError("Document must be persisted before extraction.")
     if document.filing is None or document.filing.company_id is None:
         raise ValueError("Document must have a valid filing and company_id.")
-        
+
     llm = llm or LLMClient()
     system_prompt = _load_prompt("risk_factors.txt")
-    
+
     chunks = _chunk_text(document.text, chunk_size=40000, overlap=4000)
     all_risks = []
-    
+
     for chunk in chunks:
         parsed = llm.complete_structured(
             system_prompt=system_prompt,
@@ -156,9 +158,9 @@ def extract_risk_factors(
             response_model=RiskList,
         )
         all_risks.extend(parsed.risks)
-    
+
     grounding_result = verify_quotes(document.text, all_risks, document_id=document.id)
-    
+
     seen_spans = set()
     unique_spans = []
     for span in grounding_result.accepted:
@@ -166,24 +168,11 @@ def extract_risk_factors(
         if span_key not in seen_spans:
             seen_spans.add(span_key)
             unique_spans.append(span)
-            
-    facts = []
-    for span in unique_spans:
-        fact = QualitativeFact(
-            company_id=document.filing.company_id,
-            category="risk_factor",
-            summary=span.summary
-        )
-        citation = Citation(
-            document_id=span.document_id,
-            quote=span.quote,
-            start_offset=span.start_offset,
-            end_offset=span.end_offset
-        )
-        fact.citations = [citation]
-        facts.append(fact)
-        
-    return facts
+
+    return [
+        _span_to_extracted(document.filing.company_id, "risk_factor", span)
+        for span in unique_spans
+    ]
 
 
 CATEGORY_RISK_FACTOR = "risk_factor"
@@ -200,18 +189,18 @@ def _extract_grouped(
     response_model: type,
     field_to_category: dict[str, str],
     llm: LLMClient | None = None,
-) -> list[QualitativeFact]:
+) -> list[ExtractedSpan]:
     """Generalized grouped extractor (shared by business and MD&A paths)."""
     if document.id is None:
         raise ValueError("Document must be persisted before extraction.")
     if document.filing is None or document.filing.company_id is None:
         raise ValueError("Document must have a valid filing and company_id.")
-        
+
     llm = llm or LLMClient()
     chunks = _chunk_text(document.text, chunk_size=40000, overlap=4000)
-    
+
     candidates = {cat: [] for cat in field_to_category.values()}
-    
+
     for chunk in chunks:
         parsed = llm.complete_structured(
             system_prompt=system_prompt,
@@ -220,7 +209,7 @@ def _extract_grouped(
         )
         for field, category in field_to_category.items():
             candidates[category].extend(getattr(parsed, field))
-            
+
     accepted_by_span = {}
     for category, items in candidates.items():
         result = verify_quotes(document.text, items, document_id=document.id)
@@ -228,31 +217,18 @@ def _extract_grouped(
             key = (span.start_offset, span.end_offset)
             if key not in accepted_by_span:
                 accepted_by_span[key] = (category, span)
-                
-    facts = []
-    for (category, span) in accepted_by_span.values():
-        fact = QualitativeFact(
-            company_id=document.filing.company_id,
-            category=category,
-            summary=span.summary
-        )
-        citation = Citation(
-            document_id=span.document_id,
-            quote=span.quote,
-            start_offset=span.start_offset,
-            end_offset=span.end_offset
-        )
-        fact.citations = [citation]
-        facts.append(fact)
-        
-    return facts
+
+    return [
+        _span_to_extracted(document.filing.company_id, category, span)
+        for (category, span) in accepted_by_span.values()
+    ]
 
 
 def extract_business(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> list[QualitativeFact]:
+) -> list[ExtractedSpan]:
     """Extract business profile from Item 1."""
     return _extract_grouped(
         document=document,
@@ -271,7 +247,7 @@ def extract_management_discussion(
     document: Document,
     *,
     llm: LLMClient | None = None,
-) -> list[QualitativeFact]:
+) -> list[ExtractedSpan]:
     """Extract MD&A highlights from Item 7."""
     return _extract_grouped(
         document=document,

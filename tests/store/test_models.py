@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import date
-from tearsheet.store.models import Base, Company, Filing, Document, FinancialFact, QualitativeFact, Citation
+from tearsheet.store.models import Base, Company, Filing, Document, ExtractedSpan, FinancialFact, Citation
 
 @pytest.fixture(scope="function")
 def engine():
@@ -72,26 +72,28 @@ def test_document_and_citation_relationships(session: Session):
         title="Risk Factors",
         text="Lots of text here."
     )
-    fact = QualitativeFact(
+    span = ExtractedSpan(
         company=company,
         category="risk_factor",
-        summary="Supply chain issues"
+        label="Lots of text",
+        label_start_offset=0,
+        label_end_offset=12,
     )
     citation = Citation(
-        qualitative_fact=fact,
+        extracted_span=span,
         document=doc,
         quote="Lots of text",
         start_offset=0,
         end_offset=12
     )
-    session.add_all([company, filing, doc, fact, citation])
+    session.add_all([company, filing, doc, span, citation])
     session.commit()
-    
+
     assert len(doc.citations) == 1
-    assert doc.citations[0].qualitative_fact_id == fact.id
-    assert len(fact.citations) == 1
-    assert fact.citations[0].document_id == doc.id
-    assert len(company.qualitative_facts) == 1
+    assert doc.citations[0].extracted_span_id == span.id
+    assert len(span.citations) == 1
+    assert span.citations[0].document_id == doc.id
+    assert len(company.extracted_spans) == 1
 
 def test_financial_fact(session: Session):
     company = Company(ticker="AAPL", cik="0000320193")

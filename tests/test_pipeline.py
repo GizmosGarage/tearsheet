@@ -68,12 +68,12 @@ def test_pipeline_run_for_ticker(mock_extract_fin, mock_fetch_fin, mock_llm_cls,
     from tearsheet.extract.schemas import RiskList, RiskFactor, BusinessProfile, MDAnalysis, GroundedItem
     def mock_complete(system_prompt, user_prompt, response_model):
         if response_model == RiskList:
-            return RiskList(risks=[RiskFactor(summary="Supply chain risk", exact_quote="We might run out of chips.")])
+            return RiskList(risks=[RiskFactor(exact_quote="We might run out of chips.")])
         elif response_model == BusinessProfile:
-            return BusinessProfile(revenue_streams=[GroundedItem(summary="Phones", exact_quote="sell phones.")])
+            return BusinessProfile(revenue_streams=[GroundedItem(exact_quote="sell phones.")])
         elif response_model == MDAnalysis:
             return MDAnalysis()
-            
+
     mock_llm = MagicMock()
     mock_llm.complete_structured.side_effect = mock_complete
     mock_llm_cls.return_value = mock_llm
@@ -101,14 +101,13 @@ def test_pipeline_run_for_ticker(mock_extract_fin, mock_fetch_fin, mock_llm_cls,
         assert "Section 7 not found" in result["errors"][0]
         
         assert result["financial_facts_count"] == 1
-        assert result["qualitative_facts_count"] == 2
-        
-        facts = result["qualitative_facts"]
-        assert len(facts) == 2
-        
-        # Check risk factor
-        risk = next(f for f in facts if f.category == "risk_factor")
-        assert risk.summary == "Supply chain risk"
+        assert result["extracted_spans_count"] == 2
+
+        spans = result["extracted_spans"]
+        assert len(spans) == 2
+
+        # Check risk factor span
+        risk = next(s for s in spans if s.category == "risk_factor")
         assert risk.company.ticker == "AAPL"
         assert len(risk.citations) == 1
         assert risk.citations[0].quote == "We might run out of chips."
@@ -120,9 +119,8 @@ def test_pipeline_run_for_ticker(mock_extract_fin, mock_fetch_fin, mock_llm_cls,
         assert risk_doc.text_sha256 is not None
         assert risk_doc.extraction_method == "sectioner"
 
-        # Check business profile
-        biz = next(f for f in facts if f.category == "revenue_stream")
-        assert biz.summary == "Phones"
+        # Check business profile span
+        biz = next(s for s in spans if s.category == "revenue_stream")
         assert len(biz.citations) == 1
         assert biz.citations[0].quote == "sell phones."
         assert biz.citations[0].document.section == "1"
@@ -174,7 +172,7 @@ def test_pipeline_financials_failure_does_not_abort_qualitative(mock_fetch_fin, 
     from tearsheet.extract.schemas import RiskList, RiskFactor, BusinessProfile, MDAnalysis
     def mock_complete(system_prompt, user_prompt, response_model):
         if response_model == RiskList:
-            return RiskList(risks=[RiskFactor(summary="Supply chain risk", exact_quote="We might run out of chips.")])
+            return RiskList(risks=[RiskFactor(exact_quote="We might run out of chips.")])
         elif response_model == BusinessProfile:
             return BusinessProfile()
         elif response_model == MDAnalysis:
@@ -200,8 +198,8 @@ def test_pipeline_financials_failure_does_not_abort_qualitative(mock_fetch_fin, 
         assert len(result["errors"]) == 3
         
         assert result["financial_facts_count"] == 0
-        assert result["qualitative_facts_count"] == 1
-        assert len(result["qualitative_facts"]) == 1
+        assert result["extracted_spans_count"] == 1
+        assert len(result["extracted_spans"]) == 1
 
 @patch("tearsheet.edgar.tickers.get_client")
 @patch("tearsheet.edgar.submissions.get_client")
@@ -238,24 +236,24 @@ def test_uncited_fact_discarded_before_save(
     mock_fetch_fin.return_value = {"facts": {}}
     mock_extract_fin.return_value = []
     
-    from tearsheet.store.models import QualitativeFact, Citation
-    valid_fact = QualitativeFact(company_id=1, category="risk_factor", summary="Valid")
-    valid_fact.citations = [Citation(document_id=1, quote="valid", start_offset=0, end_offset=5)]
-    
-    uncited_fact = QualitativeFact(company_id=1, category="risk_factor", summary="Uncited")
-    uncited_fact.citations = []
-    
-    mock_risk.return_value = [valid_fact, uncited_fact]
+    from tearsheet.store.models import ExtractedSpan, Citation
+    valid_span = ExtractedSpan(company_id=1, category="risk_factor", label="Valid")
+    valid_span.citations = [Citation(document_id=1, quote="valid", start_offset=0, end_offset=5)]
+
+    uncited_span = ExtractedSpan(company_id=1, category="risk_factor", label="Uncited")
+    uncited_span.citations = []
+
+    mock_risk.return_value = [valid_span, uncited_span]
     mock_business.return_value = []
     mock_mda.return_value = []
-    
+
     with patch("tearsheet.config.RAW_FILINGS_DIR", tmp_path / "raw"), \
          patch("tearsheet.config.SEC_TICKER_MAP_URL", "http://mock"):
-        
+
         pipeline = ExecutionPipeline()
         result = pipeline.run_for_ticker("AAPL")
-        
-        facts = result["qualitative_facts"]
-        assert len(facts) == 1
-        assert facts[0].summary == "Valid"
-        assert result["qualitative_facts_count"] == 1
+
+        spans = result["extracted_spans"]
+        assert len(spans) == 1
+        assert spans[0].label == "Valid"
+        assert result["extracted_spans_count"] == 1

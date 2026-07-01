@@ -39,21 +39,22 @@ def main():
         try:
             pipeline = ExecutionPipeline()
             result = pipeline.run_for_ticker(args.ticker)
-            facts = result.get("qualitative_facts", [])
+            spans = result.get("extracted_spans", [])
             fin_facts = result.get("financial_facts", [])
             errors = result.get("errors", [])
-            
+
             print("\n" + "="*50)
-            print(f"VERIFIED RISK FACTORS FOR {args.ticker.upper()}")
+            print(f"VERIFIED EXTRACTED SPANS FOR {args.ticker.upper()}")
             print("="*50)
-            
-            if not facts:
-                print("No qualitative risk factors found.")
+
+            if not spans:
+                print("No extracted spans found.")
             else:
-                for i, fact in enumerate(facts, 1):
-                    print(f"\n{i}. {fact.summary}")
-                    if fact.citations:
-                        print(f"   > \"{fact.citations[0].quote}\"")
+                for i, span in enumerate(spans, 1):
+                    heading = span.label if span.label else f"[{span.category}]"
+                    print(f"\n{i}. {heading}")
+                    if span.citations:
+                        print(f"   > \"{span.citations[0].quote}\"")
                         
             print("\n" + "="*50)
             print(f"FINANCIAL FACTS SUMMARY: {len(fin_facts)} rows extracted")

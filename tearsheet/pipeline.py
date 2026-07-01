@@ -11,7 +11,7 @@ from tearsheet.parse.documents import build_documents
 from tearsheet.extract.qualitative import extract_risk_factors, extract_business, extract_management_discussion
 from tearsheet.extract.financials import extract_financial_facts
 from tearsheet.store.repository import Repository
-from tearsheet.store.models import Filing, QualitativeFact, FinancialFact, SourceDocument
+from tearsheet.store.models import Filing, FinancialFact, SourceDocument
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +94,13 @@ class ExecutionPipeline:
         saved_docs = self.repo.save_documents(documents)
         
         docs_by_section = {d.section: d for d in saved_docs}
-        all_qual_facts = []
+        all_spans = []
         routes = [
             ("1A", extract_risk_factors),
             ("1",  extract_business),
             ("7",  extract_management_discussion)
         ]
-        
+
         for section, extractor in routes:
             doc = docs_by_section.get(section)
             if doc is None:
@@ -108,47 +108,47 @@ class ExecutionPipeline:
                 logger.warning(msg)
                 errors.append(msg)
                 continue
-            
-            logger.info(f"Extracting facts from Item {section} (ID: {doc.id})")
+
+            logger.info(f"Extracting spans from Item {section} (ID: {doc.id})")
             try:
-                facts = extractor(doc)
-                all_qual_facts.extend(facts)
+                spans = extractor(doc)
+                all_spans.extend(spans)
             except Exception as e:
                 msg = f"{section} extraction failed: {e}"
                 logger.error(msg)
                 errors.append(msg)
-                
+
         # Global span-deduplication across all categories
         seen_spans = set()
-        unique_qual_facts = []
+        unique_spans = []
         discarded_uncited = 0
-        for fact in all_qual_facts:
-            if not fact.citations:
+        for span in all_spans:
+            if not span.citations:
                 discarded_uncited += 1
                 continue
-            cit = fact.citations[0]
+            cit = span.citations[0]
             span_key = (cit.document_id, cit.start_offset, cit.end_offset)
             if span_key not in seen_spans:
                 seen_spans.add(span_key)
-                unique_qual_facts.append(fact)
-                
+                unique_spans.append(span)
+
         if discarded_uncited:
-            logger.warning(f"Discarded {discarded_uncited} uncited qualitative facts before save")
-        
-        logger.info(f"Saving {len(unique_qual_facts)} qualitative facts to repository")
-        saved_qual_facts = self.repo.save_qualitative_facts(unique_qual_facts)
-        
+            logger.warning(f"Discarded {discarded_uncited} uncited spans before save")
+
+        logger.info(f"Saving {len(unique_spans)} extracted spans to repository")
+        saved_spans = self.repo.save_extracted_spans(unique_spans)
+
         logger.info(f"Pipeline complete for {ticker}")
-        
+
         return {
             "ticker": ticker.upper(),
             "cik": cik,
             "company_id": company.id,
             "accession_number": accession_number,
             "financial_facts": saved_fin_facts,
-            "qualitative_facts": saved_qual_facts,
+            "extracted_spans": saved_spans,
             "financial_facts_count": len(saved_fin_facts),
-            "qualitative_facts_count": len(saved_qual_facts),
+            "extracted_spans_count": len(saved_spans),
             "status": "success" if not errors else "completed_with_errors",
             "errors": errors,
         }

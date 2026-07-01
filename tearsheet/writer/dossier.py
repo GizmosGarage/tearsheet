@@ -13,7 +13,7 @@ def build_dossier(ticker: str) -> str | None:
         return None
         
     filing = repo.get_latest_filing(company.id)
-    qualitative_facts = repo.get_qualitative_facts(company.id)
+    extracted_spans = repo.get_extracted_spans(company.id)
     
     series_by_concept = {}
     for concept in [
@@ -34,4 +34,4 @@ def build_dossier(ticker: str) -> str | None:
         
     financial_summary = build_financial_summary(series_by_concept)
     
-    return render_dossier(company, filing, qualitative_facts, financial_summary)
+    return render_dossier(company, filing, extracted_spans, financial_summary)

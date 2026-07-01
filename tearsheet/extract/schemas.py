@@ -1,53 +1,67 @@
-"""Pydantic shapes the LLM must return."""
+"""Pydantic shapes the LLM must return — locator-only, never authored text."""
 
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+_QUOTE_RULE = (
+    "Exact verbatim substring copied character-for-character from the source text. "
+    "You are a locator, not a writer. Any text not present verbatim in the source "
+    "will be discarded."
+)
+_LABEL_RULE = (
+    "Optional short verbatim phrase from the source that labels this span, e.g. a "
+    "bold lead-in sentence or sub-heading. Copy characters exactly from the source. "
+    "You are a locator, not a writer. Any text not present verbatim in the source "
+    "will be discarded. Omit if the source has no such label."
+)
 
-class RiskFactor(BaseModel):
-    """A single extracted risk factor."""
-    summary: str = Field(description="A concise summary of the risk factor.")
-    exact_quote: str = Field(description="Exact verbatim text from the source document supporting this risk.", min_length=3)
+
+class LocatedQuote(BaseModel):
+    """A span locator: a verbatim quote plus an optional verbatim label."""
+
+    exact_quote: str = Field(description=_QUOTE_RULE, min_length=3)
+    label_quote: str | None = Field(default=None, description=_LABEL_RULE)
+
+
+class RiskFactor(LocatedQuote):
+    """A single located risk factor span."""
+
 
 class RiskList(BaseModel):
-    """A list of extracted risk factors."""
+    """A list of located risk factor spans."""
     risks: list[RiskFactor]
 
 
-class GroundedItem(BaseModel):
-    summary: str = Field(description="A concise plain-English summary of this item.")
-    exact_quote: str = Field(
-        description="Exact verbatim substring copied from the source text. No paraphrase.",
-        min_length=3,
-    )
+class GroundedItem(LocatedQuote):
+    """A single located span for grouped extraction."""
 
 
 class BusinessProfile(BaseModel):
     revenue_streams: list[GroundedItem] = Field(
         default_factory=list,
-        description="Core products/services/segments the company earns revenue from.",
+        description="Spans describing core products/services/segments the company earns revenue from.",
     )
     competitors: list[GroundedItem] = Field(
         default_factory=list,
-        description="Named or described competitors and competitive pressures.",
+        description="Spans naming or describing competitors and competitive pressures.",
     )
     moats: list[GroundedItem] = Field(
         default_factory=list,
-        description="Durable competitive advantages: scale, IP, switching costs, brand, network effects.",
+        description="Spans asserting durable competitive advantages: scale, IP, switching costs, brand, network effects.",
     )
 
 
 class MDAnalysis(BaseModel):
     liquidity: list[GroundedItem] = Field(
         default_factory=list,
-        description="Liquidity & capital resources: cash position, debt, credit facilities, capital allocation.",
+        description="Spans on liquidity & capital resources: cash position, debt, credit facilities, capital allocation.",
     )
     kpis: list[GroundedItem] = Field(
         default_factory=list,
-        description="Key performance indicators and operating metrics management emphasizes.",
+        description="Spans stating key performance indicators and operating metrics management emphasizes.",
     )
     forward_sentiment: list[GroundedItem] = Field(
         default_factory=list,
-        description="Management's forward-looking statements, outlook, guidance, and tone.",
+        description="Spans containing management's forward-looking statements, outlook, and guidance.",
     )

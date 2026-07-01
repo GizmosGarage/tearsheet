@@ -5,9 +5,10 @@ from tearsheet.store.models import (
     Citation,
     Company,
     Document,
+    ExtractedSpan,
     Filing,
     FinancialFact,
-    QualitativeFact,
+    SourceDocument,
 )
 from tearsheet.store.repository import Repository
 
@@ -15,10 +16,11 @@ __all__ = [
     "Citation",
     "Company",
     "Document",
+    "ExtractedSpan",
     "Filing",
     "FinancialFact",
-    "QualitativeFact",
     "Repository",
+    "SourceDocument",
     "get_engine",
     "init_db",
     "session_scope",

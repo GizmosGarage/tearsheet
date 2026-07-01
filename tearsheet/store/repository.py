@@ -14,9 +14,9 @@ from tearsheet.store.models import (
     Citation,
     Company,
     Document,
+    ExtractedSpan,
     Filing,
     FinancialFact,
-    QualitativeFact,
     SourceDocument,
 )
 
@@ -60,25 +60,25 @@ class Repository:
 
     # --- Read surface (writer layer) ---
 
-    def get_qualitative_facts(
+    def get_extracted_spans(
         self, company_id: int, category: str | None = None
-    ) -> list[QualitativeFact]:
-        """All qualitative facts for a company, optionally filtered to one category.
+    ) -> list[ExtractedSpan]:
+        """All extracted spans for a company, optionally filtered to one category.
 
         Eager-loads ``citations -> document`` so the renderer can show spans and
-        section outside the session (mirrors ``save_qualitative_facts``).
+        section outside the session (mirrors ``save_extracted_spans``).
 
         Results are ordered by ``(category, id)``.
         """
         from sqlalchemy.orm import selectinload
         with self._session_ctx() as session:
-            stmt = select(QualitativeFact).where(QualitativeFact.company_id == company_id)
+            stmt = select(ExtractedSpan).where(ExtractedSpan.company_id == company_id)
             if category is not None:
-                stmt = stmt.where(QualitativeFact.category == category)
+                stmt = stmt.where(ExtractedSpan.category == category)
             stmt = stmt.options(
-                selectinload(QualitativeFact.citations).selectinload(Citation.document)
+                selectinload(ExtractedSpan.citations).selectinload(Citation.document)
             )
-            stmt = stmt.order_by(QualitativeFact.category, QualitativeFact.id)
+            stmt = stmt.order_by(ExtractedSpan.category, ExtractedSpan.id)
             return list(session.scalars(stmt).all())
 
     def get_financial_facts(
@@ -286,76 +286,63 @@ class Repository:
                 select(FinancialFact).where(FinancialFact.id.in_(fact_ids))
             ).all())
 
-    def save_qualitative_facts(
+    def save_extracted_spans(
         self,
-        facts: list[QualitativeFact],
-    ) -> list[QualitativeFact]:
-        if not facts:
+        spans: list[ExtractedSpan],
+    ) -> list[ExtractedSpan]:
+        """Persist extracted spans. Identity is the citation span itself:
+        a span whose citations all collide with rows owned by other
+        ExtractedSpans is a re-run duplicate and is not kept."""
+        if not spans:
             return []
-            
+
+        from sqlalchemy import delete
         from sqlalchemy.dialects.sqlite import insert
         from sqlalchemy.orm import selectinload
-        
+
         with self._session_ctx() as session:
-            saved_facts = []
-            for f in facts:
-                if not f.citations:
+            saved_ids = []
+            for s in spans:
+                if not s.citations:
                     continue
-                    
-                stmt = insert(QualitativeFact).values(
-                    company_id=f.company_id,
-                    category=f.category,
-                    summary=f.summary
-                )
-                stmt = stmt.on_conflict_do_nothing(
-                    index_elements=["company_id", "category", "summary"]
-                ).returning(QualitativeFact.id)
-                
-                f_id = session.scalar(stmt)
-                if not f_id:
-                    f_id = session.scalar(
-                        select(QualitativeFact.id)
-                        .where(QualitativeFact.company_id == f.company_id)
-                        .where(QualitativeFact.category == f.category)
-                        .where(QualitativeFact.summary == f.summary)
+
+                stmt = insert(ExtractedSpan).values(
+                    company_id=s.company_id,
+                    category=s.category,
+                    label=s.label,
+                    label_start_offset=s.label_start_offset,
+                    label_end_offset=s.label_end_offset,
+                ).returning(ExtractedSpan.id)
+                s_id = session.scalar(stmt)
+
+                attached = False
+                for c in s.citations:
+                    c_stmt = insert(Citation).values(
+                        extracted_span_id=s_id,
+                        document_id=c.document_id,
+                        quote=c.quote,
+                        start_offset=c.start_offset,
+                        end_offset=c.end_offset
                     )
-                
-                if f_id:
-                    attached = False
-                    for c in f.citations:
-                        c_stmt = insert(Citation).values(
-                            qualitative_fact_id=f_id,
-                            document_id=c.document_id,
-                            quote=c.quote,
-                            start_offset=c.start_offset,
-                            end_offset=c.end_offset
-                        )
-                        c_stmt = c_stmt.on_conflict_do_nothing(
-                            index_elements=["document_id", "start_offset", "end_offset"]
-                        ).returning(Citation.id)
-                        inserted_id = session.scalar(c_stmt)
-                        if inserted_id is not None:
-                            attached = True
-                            
-                    if not attached:
-                        # Span collided with a citation owned by a DIFFERENT fact, or no spans.
-                        # Verify whether THIS fact already owns a citation row before giving up:
-                        existing = session.scalar(
-                            select(Citation.id).where(Citation.qualitative_fact_id == f_id).limit(1)
-                        )
-                        attached = existing is not None
-                        
-                    if attached:
-                        saved_facts.append(f_id)
-                    else:
-                        from sqlalchemy import delete
-                        session.execute(delete(QualitativeFact).where(QualitativeFact.id == f_id))
-                        
+                    c_stmt = c_stmt.on_conflict_do_nothing(
+                        index_elements=["document_id", "start_offset", "end_offset"]
+                    ).returning(Citation.id)
+                    inserted_id = session.scalar(c_stmt)
+                    if inserted_id is not None:
+                        attached = True
+
+                if attached:
+                    saved_ids.append(s_id)
+                else:
+                    # Every citation collided with a span already stored (re-run
+                    # duplicate) — discard the freshly inserted row.
+                    session.execute(delete(ExtractedSpan).where(ExtractedSpan.id == s_id))
+
             return list(session.scalars(
-                select(QualitativeFact)
-                .where(QualitativeFact.id.in_(saved_facts))
+                select(ExtractedSpan)
+                .where(ExtractedSpan.id.in_(saved_ids))
                 .options(
-                    selectinload(QualitativeFact.company),
-                    selectinload(QualitativeFact.citations).selectinload(Citation.document)
+                    selectinload(ExtractedSpan.company),
+                    selectinload(ExtractedSpan.citations).selectinload(Citation.document)
                 )
             ).all())
