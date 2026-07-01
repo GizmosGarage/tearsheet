@@ -106,15 +106,22 @@ class Repository:
         - **Exclude** the ``1970-01-01`` sentinel (missing-date facts persisted by
           ``save_financial_facts`` when ``period_end`` is NULL).
         - **Exclude** rows where ``value`` is NULL.
+        - Restatements coexist as rows under different accessions; per
+          ``period_end`` the **latest accession's view wins** (accession numbers
+          for a company's own filings sort chronologically).
         """
         facts = self.get_financial_facts(company_id=company_id, concept=concept)
         sentinel_date = date(1970, 1, 1)
-        
-        series = []
+
+        best: dict[date, FinancialFact] = {}
         for f in facts:
-            if f.period_end != sentinel_date and f.value is not None:
-                series.append((f.period_end, float(f.value)))
-        return series
+            if f.period_end == sentinel_date or f.value is None:
+                continue
+            current = best.get(f.period_end)
+            if current is None or (f.accession_number or "") > (current.accession_number or ""):
+                best[f.period_end] = f
+
+        return [(d, float(best[d].value)) for d in sorted(best)]
 
     def get_latest_filing(self, company_id: int) -> Filing | None:
         """Most recent filing for dossier header provenance.
@@ -255,9 +262,13 @@ class Repository:
     # --- Facts ---
 
     def save_financial_facts(self, facts: list[FinancialFact]) -> list[FinancialFact]:
+        """Upsert facts on their restatement-safe identity
+        ``(company, xbrl_concept, fiscal_year, fiscal_period, accession)``.
+        Missing identity parts coalesce to sentinels so re-runs stay idempotent
+        (SQLite treats NULLs in a unique constraint as always-distinct)."""
         if not facts:
             return []
-            
+
         from sqlalchemy.dialects.sqlite import insert
         from datetime import date
         fact_ids = []
@@ -267,21 +278,37 @@ class Repository:
                 stmt = insert(FinancialFact).values(
                     company_id=f.company_id,
                     concept=f.concept,
+                    xbrl_concept=f.xbrl_concept or f.concept,
+                    accession_number=f.accession_number or "",
+                    context_ref=f.context_ref,
+                    unit_ref=f.unit_ref,
+                    fiscal_year=f.fiscal_year if f.fiscal_year is not None else 0,
+                    fiscal_period=f.fiscal_period or "",
                     label=f.label,
                     unit=f.unit,
                     period_end=p_end,
-                    value=f.value
+                    value=f.value,
+                    as_filed_value=f.as_filed_value,
+                    derivation=f.derivation,
                 )
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=["company_id", "concept", "period_end"],
+                    index_elements=[
+                        "company_id", "xbrl_concept", "fiscal_year",
+                        "fiscal_period", "accession_number",
+                    ],
                     set_=dict(
+                        context_ref=stmt.excluded.context_ref,
+                        unit_ref=stmt.excluded.unit_ref,
                         label=stmt.excluded.label,
                         unit=stmt.excluded.unit,
-                        value=stmt.excluded.value
+                        period_end=stmt.excluded.period_end,
+                        value=stmt.excluded.value,
+                        as_filed_value=stmt.excluded.as_filed_value,
+                        derivation=stmt.excluded.derivation,
                     )
                 ).returning(FinancialFact.id)
                 fact_ids.append(session.scalar(stmt))
-                
+
             return list(session.scalars(
                 select(FinancialFact).where(FinancialFact.id.in_(fact_ids))
             ).all())

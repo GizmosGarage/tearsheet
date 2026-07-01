@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text, func, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -83,16 +83,34 @@ class Document(Base):
 
 
 class FinancialFact(Base):
+    """A financial value with full XBRL ancestry. ``derivation`` is NULL for
+    as-filed facts; derived facts carry machine-readable arithmetic over
+    other facts' identities and have no ``as_filed_value``. Restatements
+    coexist as separate rows keyed by accession."""
+
     __tablename__ = "financial_facts"
-    __table_args__ = (UniqueConstraint("company_id", "concept", "period_end", name="uix_financial_fact_concept"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id", "xbrl_concept", "fiscal_year", "fiscal_period",
+            "accession_number", name="uix_financial_fact_identity",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
     concept: Mapped[str] = mapped_column(String(128), index=True)
+    xbrl_concept: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    accession_number: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    context_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    unit_ref: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    fiscal_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fiscal_period: Mapped[str | None] = mapped_column(String(8), nullable=True)
     label: Mapped[str | None] = mapped_column(String(256), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(32), nullable=True)
     period_end: Mapped[date] = mapped_column(Date, nullable=False, default=date(1970, 1, 1))
-    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    value: Mapped[float | None] = mapped_column(Numeric(asdecimal=False), nullable=True)
+    as_filed_value: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    derivation: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     company: Mapped[Company] = relationship(back_populates="financial_facts")

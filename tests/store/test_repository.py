@@ -254,9 +254,9 @@ def test_get_financial_facts():
     c = repo.upsert_company(ticker="FINFACTS", cik="888")
     
     # Intentionally insert out of chronological order
-    fact2 = FinancialFact(company_id=c.id, concept="Revenues", value=200.0, period_end=date(2022, 12, 31))
-    fact1 = FinancialFact(company_id=c.id, concept="Revenues", value=100.0, period_end=date(2021, 12, 31))
-    fact3 = FinancialFact(company_id=c.id, concept="Assets", value=500.0, period_end=date(2022, 12, 31))
+    fact2 = FinancialFact(company_id=c.id, concept="Revenues", value=200.0, period_end=date(2022, 12, 31), fiscal_year=2022)
+    fact1 = FinancialFact(company_id=c.id, concept="Revenues", value=100.0, period_end=date(2021, 12, 31), fiscal_year=2021)
+    fact3 = FinancialFact(company_id=c.id, concept="Assets", value=500.0, period_end=date(2022, 12, 31), fiscal_year=2022)
     
     repo.save_financial_facts([fact2, fact1, fact3])
     
@@ -292,13 +292,13 @@ def test_get_financial_series():
     c = repo.upsert_company(ticker="SERIES", cik="888")
     
     # Valid
-    f1 = FinancialFact(company_id=c.id, concept="Revenues", value=100.0, period_end=date(2021, 12, 31))
+    f1 = FinancialFact(company_id=c.id, concept="Revenues", value=100.0, period_end=date(2021, 12, 31), fiscal_year=2021)
     # Sentinel date (should be dropped)
-    f2 = FinancialFact(company_id=c.id, concept="Revenues", value=200.0, period_end=date(1970, 1, 1))
+    f2 = FinancialFact(company_id=c.id, concept="Revenues", value=200.0, period_end=date(1970, 1, 1), fiscal_year=2019)
     # None value (should be dropped)
-    f3 = FinancialFact(company_id=c.id, concept="Revenues", value=None, period_end=date(2022, 12, 31))
+    f3 = FinancialFact(company_id=c.id, concept="Revenues", value=None, period_end=date(2022, 12, 31), fiscal_year=2022)
     # Valid
-    f4 = FinancialFact(company_id=c.id, concept="Revenues", value=300.0, period_end=date(2023, 12, 31))
+    f4 = FinancialFact(company_id=c.id, concept="Revenues", value=300.0, period_end=date(2023, 12, 31), fiscal_year=2023)
     
     repo.save_financial_facts([f1, f2, f3, f4])
     
